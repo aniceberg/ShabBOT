@@ -20,7 +20,20 @@ from .websocket import async_setup_websocket
 PLATFORMS = [Platform.BINARY_SENSOR, Platform.CALENDAR, Platform.SELECT, Platform.SENSOR, Platform.SWITCH]
 FRONTEND_DIR = Path(__file__).parent / "frontend"
 STATIC_DIR = Path(__file__).parent / "static"
-ICONS_URL = f"{PANEL_STATIC_URL}_icons/shabbot-icons.js?v={VERSION}"
+
+
+def _asset_url(base: str, path: Path) -> str:
+    """Cache-busting URL: changes with each release and each rebuild of the file."""
+    try:
+        stamp = int(path.stat().st_mtime)
+    except OSError:
+        stamp = 0
+    return f"{base}?v={VERSION}-{stamp}"
+
+
+# Computed at import (which HA runs off the event loop), so no file I/O happens inside the loop.
+ICONS_URL = _asset_url(f"{PANEL_STATIC_URL}_icons/shabbot-icons.js", STATIC_DIR / "shabbot-icons.js")
+PANEL_MODULE_URL = _asset_url(f"{PANEL_STATIC_URL}/shabbot-panel.js", FRONTEND_DIR / "shabbot-panel.js")
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 type ShabbotConfigEntry = ConfigEntry[ShabbotManager]
@@ -77,7 +90,7 @@ async def _async_register_panel(hass: HomeAssistant) -> None:
         hass,
         webcomponent_name=PANEL_COMPONENT,
         frontend_url_path=PANEL_URL,
-        module_url=f"{PANEL_STATIC_URL}/shabbot-panel.js?v={VERSION}",
+        module_url=PANEL_MODULE_URL,
         sidebar_title=NAME,
         sidebar_icon=PANEL_ICON,
         require_admin=False,

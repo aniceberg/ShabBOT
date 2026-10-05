@@ -31,6 +31,9 @@ DEFAULT_SETTINGS: Final = {
     "havdalah_minutes": 50,
     "israel": False,
     "use_elevation": False,
+    "early_shabbat": False,  # summer: accept Shabbat at a fixed time when candle lighting is late
+    "early_shabbat_time": "19:00",
+    "early_shabbat_after": "19:15",
     "latitude": None,  # None = use Home Assistant's location
     "longitude": None,
     "dry_run": True,  # start safe: log only until the user turns it off

@@ -259,3 +259,32 @@ async def test_websocket_plan_and_routine_save(hass: HomeAssistant, manager: Sha
     await client.send_json_auto_id({"type": "shabbot/preview", "expr": "sunset+18m", "part": "night"})
     res = await client.receive_json()
     assert res["result"]["time"].startswith("2026-10-09T18:4")
+
+
+async def test_websocket_rejects_backwards_routine(hass: HomeAssistant, manager: ShabbotManager, hass_ws_client) -> None:
+    client = await hass_ws_client(hass)
+    routine = {"name": "Backwards", "part": "night", "actions": [
+        {"entity_id": "light.x", "state": "on", "start": "slot_end", "end": "slot_start"}]}
+    await client.send_json_auto_id({"type": "shabbot/routine/save", "routine": routine})
+    res = await client.receive_json()
+    assert not res["success"] and "never after the start time" in res["error"]["message"]
+    await client.send_json_auto_id({"type": "shabbot/routine/check", "part": "night",
+                                    "actions": [{"start": "sunset", "end": "sunrise"}]})
+    res = await client.receive_json()
+    (check,) = res["result"]
+    assert check["first"]["start"].startswith("2026-10-09T18:2")
+    assert check["first"]["end"].startswith("2026-10-10T07:0") and check["first"]["next_day"]
+    assert check["next_day"] == check["total"] and not check["always_invalid"]
+
+
+async def test_early_shabbat_setting_moves_candle_lighting(hass: HomeAssistant, manager: ShabbotManager,
+                                                           hass_ws_client) -> None:
+    client = await hass_ws_client(hass)
+    await client.send_json_auto_id({"type": "shabbot/settings/save", "settings": {
+        "early_shabbat": True, "early_shabbat_time": "19:00", "early_shabbat_after": "19:15"}})
+    assert (await client.receive_json())["success"]
+    await client.send_json_auto_id({"type": "shabbot/plan", "start": "2027-06-25", "end": "2027-06-26"})
+    (block,) = (await client.receive_json())["result"]["blocks"]
+    assert block["start"].startswith("2027-06-25T19:00") and block["normal_start"].startswith("2027-06-25T20:1")
+    await client.send_json_auto_id({"type": "shabbot/settings/save", "settings": {"early_shabbat_time": "7pm"}})
+    assert not (await client.receive_json())["success"]

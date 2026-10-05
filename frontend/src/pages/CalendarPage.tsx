@@ -3,6 +3,7 @@ import FullCalendar, { type CalendarRef, type EventInput } from "@fullcalendar/r
 import dayGridPlugin from "@fullcalendar/react/daygrid";
 import timeGridPlugin from "@fullcalendar/react/timegrid";
 import multiMonthPlugin from "@fullcalendar/react/multimonth";
+import interactionPlugin from "@fullcalendar/react/interaction";
 import monarchTheme from "@fullcalendar/react/themes/monarch";
 import { errorMessage, useConfig, usePlan, useSave, useTimeline } from "../api";
 import { Drawer, Icon, Segmented } from "../components/ui";
@@ -55,13 +56,20 @@ export function CalendarPage() {
     if (!plan.data) return [];
     const timeGrid = view.startsWith("timeGrid");
     const out: EventInput[] = [];
+    if (view === "multiMonthYear") {
+      // Year view cells are too small for event bars: shade the days instead (click a day for details).
+      return plan.data.blocks.map((b) => ({
+        id: `year-${b.id}`, start: b.days[0], end: isoDate(addDays(new Date(`${b.days[b.days.length - 1]}T00:00`), 1)),
+        allDay: true, display: "background", color: CANDLE,
+      }));
+    }
     for (const b of plan.data.blocks) {
       if (timeGrid) {
         out.push({ id: `bg-${b.id}`, start: b.start, end: b.end, display: "background", color: CANDLE });
       }
       out.push({
         id: `block-${b.id}`,
-        title: `${b.title} · until ${time(b.end)}`,
+        title: `${b.normal_start ? "Early " : ""}${b.title} · until ${time(b.end)}`,
         start: b.start,
         end: b.end,
         allDay: timeGrid,
@@ -71,7 +79,6 @@ export function CalendarPage() {
         extendedProps: { kind: "block", id: b.id },
       });
     }
-    if (view === "multiMonthYear") return out;
     for (const i of plan.data.instances) {
       if (i.part === "block") continue;
       if (!i.routine_id && i.source !== "skipped") continue;
@@ -113,7 +120,12 @@ export function CalendarPage() {
       <div className="sb-card sb-cal">
         <FullCalendar
           ref={ref}
-          plugins={[monarchTheme, dayGridPlugin, timeGridPlugin, multiMonthPlugin]}
+          plugins={[monarchTheme, dayGridPlugin, timeGridPlugin, multiMonthPlugin, interactionPlugin]}
+          dateClick={(info) => {
+            if (view !== "multiMonthYear") return;
+            const block = blocks.find((b) => b.days.includes(isoDate(info.date)));
+            if (block) setSel({ kind: "block", id: block.id });
+          }}
           initialView={view}
           headerToolbar={false}
           height="auto"
@@ -132,7 +144,7 @@ export function CalendarPage() {
       </div>
       <div className="sb-legend">
         <span><i className="sb-dot" style={{ background: CANDLE }} /> Shabbat / Yom Tov (candle lighting → havdalah)</span>
-        <span>Click an entry to see its routine and devices</span>
+        <span>{view === "multiMonthYear" ? "Click a shaded day to see that Shabbat/Yom Tov" : "Click an entry to see its routine and devices"}</span>
       </div>
       {config.data && (
         <SelectionDrawer sel={sel} setSel={setSel} blocks={blocks} instances={instances} config={config.data.config} />
@@ -200,6 +212,7 @@ function BlockDetail({ block, instances, config, onOpen }: {
     <>
       <dl className="sb-zmanim">
         <div><dt>Candle lighting</dt><dd>{dayTime(block.start)}</dd></div>
+        {block.normal_start && <div><dt>Early Shabbat; normally</dt><dd>{time(block.normal_start)}</dd></div>}
         <div><dt>Havdalah</dt><dd>{dayTime(block.end)}</dd></div>
       </dl>
       <div className="sb-list">
@@ -283,7 +296,7 @@ function InstanceDetail({ inst, config, onDevice }: { inst: Instance; config: Co
                   <div className="sb-ellipsis">{friendlyName(a.entity_id)}</div>
                   {a.error ? <div className="sb-error">{a.error}</div> : (
                     <div className="sb-hint sb-tnum">
-                      {a.state === "on" ? "On" : "Off"} {time(a.start)} – {time(a.end)}
+                      {a.state === "on" ? "On" : "Off"} {time(a.start)} – {a.next_day ? dayTime(a.end) : time(a.end)}
                       {a.attrs.brightness ? ` · ${a.attrs.brightness}%` : ""}
                       {a.end_state !== "leave" ? ` · then ${a.end_state}` : ""}
                     </div>
@@ -316,7 +329,7 @@ function DeviceDetail({ entity, block }: { entity: string; block: Block }) {
       <DeviceTimeline
         actions={sorted.map((iv, i) => ({
           action_id: `${iv.action_id}-${i}`, entity_id: `${iv.routine_name}`, state: iv.state, attrs: iv.attrs,
-          start: iv.start, end: iv.end, end_state: iv.end_state, disabled: false, error: null,
+          start: iv.start, end: iv.end, end_state: iv.end_state, disabled: false, error: null, next_day: false,
         }))}
         color="#2f5bd3"
         anchors={{ block_start: block.start, block_end: block.end }}

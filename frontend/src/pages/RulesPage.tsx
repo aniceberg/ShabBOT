@@ -47,7 +47,7 @@ export function RulesPage() {
 
   return (
     <div className="sb-stack">
-      <div className="sb-card sb-card-pad sb-stack">
+      <div className="sb-card sb-card-pad sb-stack sb-editor">
         <div>
           <h3 className="sb-section-title">Default rules</h3>
           <p className="sb-hint">
@@ -62,28 +62,28 @@ export function RulesPage() {
           {rules.map((r, i) => (
             <div key={r.id || i} className="sb-rule" style={{ opacity: r.enabled ? 1 : 0.5 }}>
               <input type="checkbox" checked={r.enabled} title="Enabled" onChange={(e) => set(i, { enabled: e.target.checked })} />
-              <input className="sb-input" value={r.name} onChange={(e) => set(i, { name: e.target.value })} />
-              <select className="sb-select" value={r.part} onChange={(e) => set(i, { part: e.target.value as Part, routine_id: null })}>
+              <div><span className="sb-cell-label">Name</span><input className="sb-input" value={r.name} onChange={(e) => set(i, { name: e.target.value })} /></div>
+              <div><span className="sb-cell-label">Meal</span><select className="sb-select" value={r.part} onChange={(e) => set(i, { part: e.target.value as Part, routine_id: null })}>
                 {PARTS.map((p) => <option key={p} value={p}>{PART_LABEL[p]}</option>)}
-              </select>
-              <select className="sb-select" value={r.match.day_type ?? ""} onChange={(e) => setMatch(i, "day_type", e.target.value)}>
+              </select></div>
+              <div><span className="sb-cell-label">Kind of day</span><select className="sb-select" value={r.match.day_type ?? ""} onChange={(e) => setMatch(i, "day_type", e.target.value)}>
                 <option value="">Any</option>
                 {data.meta.day_types.map((d) => <option key={d} value={d}>{DAY_TYPE_LABEL[d] ?? d}</option>)}
-              </select>
-              <select className="sb-select" value={r.match.holiday_group ?? ""} onChange={(e) => setMatch(i, "holiday_group", e.target.value)}>
+              </select></div>
+              <div><span className="sb-cell-label">Holiday</span><select className="sb-select" value={r.match.holiday_group ?? ""} onChange={(e) => setMatch(i, "holiday_group", e.target.value)}>
                 <option value="">Any</option>
                 {data.meta.holiday_groups.map((g) => <option key={g} value={g}>{HOLIDAY_LABEL[g] ?? g}</option>)}
-              </select>
-              <select className="sb-select" value={r.match.day_in_block ?? ""} title="Which day of a 2- or 3-day Shabbat/Yom Tov"
+              </select></div>
+              <div><span className="sb-cell-label">Day #</span><select className="sb-select" value={r.match.day_in_block ?? ""} title="Which day of a 2- or 3-day Shabbat/Yom Tov"
                 onChange={(e) => setMatch(i, "day_in_block", e.target.value)}>
                 <option value="">Any</option><option value="1">1st</option><option value="2">2nd</option><option value="3">3rd</option>
-              </select>
-              <select className="sb-select" value={r.match.weekday ?? ""} onChange={(e) => setMatch(i, "weekday", e.target.value)}>
+              </select></div>
+              <div><span className="sb-cell-label">Weekday</span><select className="sb-select" value={r.match.weekday ?? ""} onChange={(e) => setMatch(i, "weekday", e.target.value)}>
                 <option value="">Any</option>
                 {WEEKDAYS.map((w, n) => <option key={w} value={n}>{w}</option>)}
-              </select>
-              <RoutineSelect value={r.routine_id} onChange={(v) => set(i, { routine_id: v })} routines={routines} part={r.part}
-                specials={[{ value: null, label: "Nothing" }]} />
+              </select></div>
+              <div><span className="sb-cell-label">Use routine</span><RoutineSelect value={r.routine_id} onChange={(v) => set(i, { routine_id: v })} routines={routines} part={r.part}
+                specials={[{ value: null, label: "Nothing" }]} /></div>
               <div className="sb-row" style={{ gap: 0, flexWrap: "nowrap" }}>
                 <button className="sb-btn sb-btn-ghost sb-icon-btn" disabled={i === 0} onClick={() => move(i, -1)} aria-label="Move up"><Icon name="up" size={16} /></button>
                 <button className="sb-btn sb-btn-ghost sb-icon-btn" disabled={i === rules.length - 1} onClick={() => move(i, 1)} aria-label="Move down"><Icon name="down" size={16} /></button>

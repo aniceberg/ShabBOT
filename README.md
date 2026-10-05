@@ -38,9 +38,12 @@ Works on every Home Assistant install type (OS, Supervised, Container, Core). In
 | `11:45pm`, `23:45`, `1:00am` | clock time (on a night slot, morning times mean the next morning) |
 | `midnight` | 12:00 AM after the evening |
 | `max(sunset+18m, 7pm)` | later of the two |
-| `block_start`, `block_end`, `slot_start`, `slot_end` | block/slot boundaries |
+| `10pm` → `6am`, `sunset` → `sunrise` | an end before the start is read as the next day ("crosses midnight") |
+| `slot_start`, `slot_end` | start/end of this meal period |
 
-Available zmanim: `alot`, `sunrise`, `chatzot`, `mincha_gedola`, `plag`, `candle_lighting`, `sunset`, `tzeit` (8.5°), `havdalah` (as configured).
+Available zmanim: `alot`, `sunrise`, `chatzot`, `mincha_gedola`, `plag`, `candle_lighting` (when candles are lit that night), `sunset`, `tzeit` (8.5°), `havdalah` (the end of this Shabbat/Yom Tov, as configured).
+
+**Early Shabbat (summer)**: Settings → Early Shabbat lights candles at a fixed time (e.g. 7:00 PM) on Fridays when the normal time would be later than a cutoff (e.g. 7:15 PM), never before plag hamincha, and only on a plain Shabbat (not when it is also Yom Tov). Device protection starts at the early time, and routine rows written with `candle_lighting` move with it; rows written with `sunset` don't, so prefer `candle_lighting` for anything tied to the start of Shabbat.
 
 **Which routine runs** (most specific first):
 1. A choice made for that date on the calendar (a different routine, or *Skip this meal*).

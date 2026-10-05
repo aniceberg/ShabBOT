@@ -80,6 +80,9 @@ export interface Settings {
   havdalah_minutes: number;
   israel: boolean;
   use_elevation: boolean;
+  early_shabbat: boolean;
+  early_shabbat_time: string;
+  early_shabbat_after: string;
   latitude: number | null;
   longitude: number | null;
   dry_run: boolean;
@@ -134,6 +137,8 @@ export interface Block {
   days: string[];
   start: string;
   end: string;
+  /** Set when Shabbat starts early: the normal candle-lighting time. */
+  normal_start: string | null;
   slots: Slot[];
 }
 
@@ -147,6 +152,7 @@ export interface PlannedAction {
   end_state: string;
   disabled: boolean;
   error: string | null;
+  next_day: boolean;
 }
 
 export interface Instance {
@@ -240,4 +246,17 @@ export interface Hass {
   connection: {
     subscribeMessage<T>(cb: (msg: T) => void, msg: Record<string, unknown>): Promise<() => Promise<void>>;
   };
+}
+
+/** Result of shabbot/routine/check for one routine row over the next year. */
+export interface RowCheck {
+  index: number;
+  total: number;
+  next_day: number;
+  invalid: number;
+  always_invalid: boolean;
+  error: string | null;
+  first: { key: string; title: string; start: string; end: string; next_day: boolean } | null;
+  next_day_example: { key: string; title: string; start: string; end: string } | null;
+  invalid_example: { key: string; title: string } | null;
 }

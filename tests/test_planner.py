@@ -159,12 +159,66 @@ def test_timeline_layers_meal_over_baseline() -> None:
 
 def test_instance_span_and_errors() -> None:
     cfg = {**CONFIG, "routines": {**CONFIG["routines"], "bad": {"id": "bad", "name": "Bad", "part": "night",
-           "actions": [_action("x", "light.x", "sunset", "sunset-1h"), _action("y", "light.y", "nope", "sunset")]}},
+           "actions": [_action("x", "light.x", "slot_end", "slot_start"), _action("y", "light.y", "nope", "sunset"),
+                       _action("z", "light.z", "sunset", "sunset-1h")]}},
            "assignments": {"2026-10-10/night": {"routine_id": "bad"}}}
     _, instances = planner.plan_range(date(2026, 10, 10), date(2026, 10, 10), BROOKLYN, MINHAG, cfg)
     inst = next(i for i in instances if i.target.key == "2026-10-10/night")
     assert inst.actions[0].error == "End is not after start"
     assert "Unknown time" in inst.actions[1].error
+    assert inst.actions[2].error is None and inst.actions[2].next_day  # read as the next evening (23 h)
     std = next(i for i in instances if i.target.key == "2026-10-10/day")
     assert std.start == datetime(2026, 10, 10, 7, 0, tzinfo=TZ)
     assert std.end == datetime(2026, 10, 10, 14, 0, tzinfo=TZ)
+
+
+def test_check_actions_reports_overnight_and_invalid_rows() -> None:
+    blocks = jcal.blocks_between(date(2026, 10, 5), date(2027, 10, 4), BROOKLYN, MINHAG)
+    checks = planner.check_actions("night", [
+        _action("ok", "light.a", "sunset+18m", "11:45pm"),
+        _action("overnight", "light.b", "6:15pm", "5:00pm"),  # read as 5:00 PM the next day
+        _action("morning", "light.c", "11pm", "1:00am"),  # morning clock times already mean the next morning
+        _action("seasonal", "light.d", "sunset", "7pm"),  # evening in winter, crosses midnight in summer
+        _action("never", "light.e", "slot_end", "slot_start"),  # fixed times that can't fit
+        _action("bad", "light.f", "sunsett", "midnight"),
+    ], blocks, TZ)
+    ok, overnight, morning, seasonal, never, bad = checks
+    assert ok.total > 50 and ok.next_day == 0 and ok.invalid == 0
+    assert overnight.next_day == overnight.total and overnight.invalid == 0
+    assert morning.next_day == 0
+    assert 0 < seasonal.next_day < seasonal.total
+    assert seasonal.next_day_example and seasonal.next_day_example["key"] >= "2027-03"
+    assert never.always_invalid
+    assert bad.error and "Unknown time" in bad.error and bad.total == 0
+
+
+def test_sunset_to_sunrise_crosses_midnight() -> None:
+    cfg = {**CONFIG, "routines": {**CONFIG["routines"], "dark": {"id": "dark", "name": "Dark", "part": "night",
+           "actions": [_action("bd", "light.bedroom", "sunset", "sunrise", state="off")]}},
+           "assignments": {"2026-10-10/night": {"routine_id": "dark"}}}
+    _, instances = planner.plan_range(date(2026, 10, 10), date(2026, 10, 10), BROOKLYN, MINHAG, cfg)
+    (a,) = next(i for i in instances if i.target.key == "2026-10-10/night").actions
+    assert a.error is None and a.next_day
+    assert a.start.date() == date(2026, 10, 9) and a.start.hour == 18
+    assert a.end.date() == date(2026, 10, 10) and a.end.hour == 7  # Saturday's sunrise, not Friday's
+
+
+def test_havdalah_and_candle_lighting_in_meal_routines() -> None:
+    # Pesach 2027: Thu (YT1), Fri (YT2), Sat (Shabbat).
+    (block,) = jcal.blocks_between(date(2027, 4, 22), date(2027, 4, 22), BROOKLYN, MINHAG)
+    night1, day1, night2 = block.slots[0], block.slots[1], block.slots[2]
+    for slot in (night1, day1, night2):
+        assert slot.anchors["havdalah"] == block.end  # always the real end of this Yom Tov/Shabbat
+    assert night1.anchors["candle_lighting"] == block.start
+    assert night2.anchors["candle_lighting"] == night2.start  # 2nd night: lit after tzeit
+    assert night2.anchors["candle_lighting"] > night2.anchors["sunset"]
+
+
+def test_instance_span_ignores_backwards_rows() -> None:
+    cfg = {**CONFIG, "routines": {**CONFIG["routines"], "mixed": {"id": "mixed", "name": "Mixed", "part": "night",
+           "actions": [_action("bw", "light.x", "slot_end", "slot_start")]}},
+           "assignments": {"2026-10-10/night": {"routine_id": "mixed"}}}
+    _, instances = planner.plan_range(date(2026, 10, 10), date(2026, 10, 10), BROOKLYN, MINHAG, cfg)
+    inst = next(i for i in instances if i.target.key == "2026-10-10/night")
+    assert inst.actions[0].error == "End is not after start"
+    assert inst.end >= inst.start  # calendar events must never run backwards

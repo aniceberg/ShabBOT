@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import deque
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from functools import partial
 import logging
 from typing import Any
@@ -30,6 +30,14 @@ _LOGGER = logging.getLogger(__name__)
 OFF_STATES = {"off", "closed", "standby", "idle", "paused"}
 ECHO_SECONDS = 20  # a state matching our last command within this window is our own echo
 SERVICE_TIMEOUT = 30
+
+
+def _hhmm(value: str | None) -> time | None:
+    """Parse "HH:MM" from settings."""
+    if not value:
+        return None
+    hour, minute = value.split(":")[:2]
+    return time(int(hour), int(minute))
 
 
 def is_on(state: State) -> bool:
@@ -117,6 +125,8 @@ class ShabbotManager:
             havdalah_minutes=int(s["havdalah_minutes"]),
             israel=bool(s["israel"]),
             use_elevation=bool(s["use_elevation"]),
+            early_shabbat_time=_hhmm(s.get("early_shabbat_time")) if s.get("early_shabbat") else None,
+            early_shabbat_after=_hhmm(s.get("early_shabbat_after")) if s.get("early_shabbat") else None,
         )
 
     def now(self) -> datetime:

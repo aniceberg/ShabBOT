@@ -1,6 +1,6 @@
 """Check blocks, candle lighting and havdalah against hebcal.com reference data."""
 
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 import json
 from pathlib import Path
 
@@ -87,3 +87,47 @@ def test_zmanim_against_hebcal() -> None:
         for ds, v in times[key].items():
             ours = getattr(jcal.Zmanim(date.fromisoformat(ds), BROOKLYN, jcal.Minhag()), attr)
             assert abs((ours - datetime.fromisoformat(v)).total_seconds()) <= 5, (key, ds)
+
+
+EARLY = jcal.Minhag(early_shabbat_time=time(19, 0), early_shabbat_after=time(19, 15))
+
+
+def _block(day: date, minhag: jcal.Minhag) -> jcal.Block:
+    (block,) = jcal.blocks_between(day, day, BROOKLYN, minhag)
+    return block
+
+
+def test_early_shabbat_in_summer() -> None:
+    normal = _block(date(2027, 6, 26), jcal.Minhag())
+    early = _block(date(2027, 6, 26), EARLY)
+    assert normal.start.time() > time(20, 0)
+    assert early.start == datetime(2027, 6, 25, 19, 0, tzinfo=BROOKLYN.tzinfo)
+    assert early.normal_start == normal.start
+    night = early.slots[0]
+    assert night.start == early.start and night.anchors["candle_lighting"] == early.start
+    assert night.anchors["sunset"] == normal.slots[0].anchors["sunset"]  # zmanim themselves don't move
+    assert jcal.block_at(datetime(2027, 6, 25, 19, 30, tzinfo=BROOKLYN.tzinfo), BROOKLYN, EARLY) is not None
+
+
+def test_early_shabbat_not_in_winter_or_below_cutoff() -> None:
+    assert _block(date(2026, 12, 12), EARLY).normal_start is None
+    # Candle lighting 7:04 PM on Fri 2026-09-04 is before the 7:15 PM cutoff: normal time.
+    sept = _block(date(2026, 9, 5), EARLY)
+    assert sept.normal_start is None and sept.start == _block(date(2026, 9, 5), jcal.Minhag()).start
+
+
+def test_early_shabbat_never_before_plag() -> None:
+    six = jcal.Minhag(early_shabbat_time=time(18, 0), early_shabbat_after=time(18, 15))
+    block = _block(date(2027, 6, 26), six)
+    plag = jcal.Zmanim(date(2027, 6, 25), BROOKLYN, six).plag
+    assert block.start > datetime(2027, 6, 25, 18, 0, tzinfo=BROOKLYN.tzinfo)
+    assert block.start - plag < timedelta(minutes=1)
+
+
+def test_early_shabbat_skips_yom_tov_on_shabbat() -> None:
+    # Rosh Hashana 5787 begins Shabbat 2026-09-12; early Shabbat is for plain Shabbatot only.
+    early = jcal.Minhag(early_shabbat_time=time(18, 30), early_shabbat_after=time(18, 45))
+    block = _block(date(2026, 9, 12), early)
+    assert block.normal_start is None
+    # Second night of Yom Tov still starts after tzeit.
+    assert block.slots[2].start > block.slots[2].anchors["sunset"]

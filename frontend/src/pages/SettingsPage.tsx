@@ -91,6 +91,30 @@ export function SettingsPage() {
       </div>
 
       <div className="sb-card sb-card-pad sb-stack">
+        <div>
+          <h3 className="sb-section-title">Early Shabbat (summer)</h3>
+          <p className="sb-hint">
+            Take Shabbat early at a fixed time on summer Fridays. Candle lighting, the start of device protection, and
+            every routine time written as <code>candle_lighting</code> move with it. Applies to a plain Shabbat only (not
+            when it is also Yom Tov), and never earlier than plag hamincha.
+          </p>
+        </div>
+        <Check checked={draft.early_shabbat} onChange={(v) => set("early_shabbat", v)}>Start Shabbat early in the summer</Check>
+        {draft.early_shabbat && (
+          <div className="sb-grid-2">
+            <Field label="Candle lighting at">
+              <input className="sb-input" type="time" value={draft.early_shabbat_time}
+                onChange={(e) => set("early_shabbat_time", e.target.value)} />
+            </Field>
+            <Field label="Only when the normal candle lighting is after" hint="So it switches on and off with the seasons.">
+              <input className="sb-input" type="time" value={draft.early_shabbat_after}
+                onChange={(e) => set("early_shabbat_after", e.target.value)} />
+            </Field>
+          </div>
+        )}
+      </div>
+
+      <div className="sb-card sb-card-pad sb-stack">
         <h3 className="sb-section-title">Behavior</h3>
         <Check checked={draft.dry_run} onChange={(v) => set("dry_run", v)}>
           Dry run: log what ShabBOT would do, but don't touch any devices

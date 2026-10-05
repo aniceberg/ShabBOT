@@ -1,6 +1,6 @@
 import { useEffect, useId, useMemo, useState } from "react";
 import { callWS, CONTROLLABLE, shallowEqual, useHassSelector } from "../hass";
-import { dayTime } from "../format";
+import { ANCHOR_CHIP, ANCHOR_LABEL, dayTime, describeExpr } from "../format";
 import type { Part } from "../types";
 
 /** Entity picker over controllable entities, with friendly names. */
@@ -31,11 +31,13 @@ export function EntityPicker({ value, onChange, domains = CONTROLLABLE, placehol
   );
 }
 
-const QUICK = ["sunset", "candle_lighting", "tzeit", "havdalah", "midnight", "sunrise", "chatzot", "block_start", "block_end"];
+const QUICK = ["candle_lighting", "sunset", "tzeit", "midnight", "sunrise", "chatzot", "havdalah"];
 
 /** Time expression input with live preview against the next matching Shabbat/Yom Tov. */
-export function ExprInput({ value, onChange, part, slotKey }: {
+export function ExprInput({ value, onChange, part, slotKey, resolved }: {
   value: string; onChange: (v: string) => void; part: Part; slotKey?: string;
+  /** Time the whole row resolves to (e.g. an end read as the next morning); overrides the single-field preview. */
+  resolved?: string | null;
 }) {
   const [preview, setPreview] = useState<{ time?: string; error?: string; title?: string }>({});
   useEffect(() => {
@@ -54,18 +56,24 @@ export function ExprInput({ value, onChange, part, slotKey }: {
       clearTimeout(t);
     };
   }, [value, part, slotKey]);
-  const quick = part === "block" ? QUICK : QUICK.filter((q) => !q.startsWith("block"));
+  const quick = QUICK;
+  const shown = resolved ?? preview.time;
   return (
     <div>
       <input className={`sb-input sb-mono ${preview.error ? "sb-invalid" : ""}`} value={value}
         onChange={(e) => onChange(e.target.value)} placeholder="e.g. sunset+18m or 11:45pm" spellCheck={false} />
       <div className="sb-preview" title={preview.title}>
-        {preview.error ? <span className="sb-error">{preview.error}</span> : preview.time ? `→ ${dayTime(preview.time)}` : ""}
+        {preview.error ? <span className="sb-error">{preview.error}</span>
+          : shown ? `${describeExpr(value) ? `${describeExpr(value)} ` : ""}→ ${dayTime(shown)}` : ""}
       </div>
       <details>
         <summary className="sb-hint" style={{ cursor: "pointer", fontSize: 11 }}>Insert time</summary>
         <div className="sb-chips">
-          {quick.map((q) => <button key={q} type="button" className="sb-chip" onClick={() => onChange(q)}>{q}</button>)}
+          {quick.map((q) => (
+            <button key={q} type="button" className="sb-chip" title={`${ANCHOR_LABEL[q]} (${q})`} onClick={() => onChange(q)}>
+              {ANCHOR_CHIP[q] ?? q}
+            </button>
+          ))}
         </div>
       </details>
     </div>

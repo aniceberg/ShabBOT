@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from bisect import bisect_right
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any
 
 from . import astro, jcal, timeexpr
@@ -48,10 +48,16 @@ class Target:
     def anchors(self) -> dict[str, datetime]:
         if self.slot:
             return self.slot.anchors
-        # Baseline: zmanim of the first evening, plus block_start/block_end.
+        # Baseline: zmanim of the first evening; slot = the whole block.
         first = self.block.slots[0]
-        return {**first.anchors, "slot_start": self.block.start, "slot_end": self.block.end,
-                "havdalah": self.block.end}
+        return {**first.anchors, "slot_start": self.block.start, "slot_end": self.block.end}
+
+    @property
+    def next_anchors(self) -> dict[str, datetime]:
+        if self.slot:
+            return self.slot.next_anchors
+        first = self.block.slots[0]
+        return {**first.next_anchors, "slot_start": self.block.start, "slot_end": self.block.end}
 
     @property
     def base_date(self) -> date:
@@ -60,6 +66,22 @@ class Target:
     @property
     def night(self) -> bool:
         return self.slot is None or self.slot.part is jcal.Part.NIGHT
+
+
+def evaluate_window(action: dict[str, Any], target: Target, tz) -> tuple[datetime, datetime, bool]:
+    """Resolve an action's (start, end, crosses_midnight) for one target.
+
+    If the end comes before the start (e.g. sunset → sunrise, or 10pm → 6am on a day meal), the end is
+    read as the next day's time. Raises ExprError if it still doesn't fit within 24 hours after the start.
+    """
+    start = timeexpr.evaluate(action["start"], target.anchors, target.base_date, target.night, tz)
+    end = timeexpr.evaluate(action["end"], target.anchors, target.base_date, target.night, tz)
+    if end > start:
+        return start, end, False
+    end = timeexpr.evaluate(action["end"], target.next_anchors, target.base_date + timedelta(days=1), False, tz)
+    if start < end <= start + timedelta(hours=24):
+        return start, end, True
+    raise timeexpr.ExprError("End is not after start")
 
 
 def targets_for_block(block: jcal.Block) -> list[Target]:
@@ -169,9 +191,11 @@ class PlannedAction:
     end_state: str
     disabled: bool = False
     error: str | None = None
+    next_day: bool = False  # end was read as the next day's time (crosses midnight)
 
     def to_dict(self) -> dict[str, Any]:
         return {
+            "next_day": self.next_day,
             "action_id": self.action_id, "entity_id": self.entity_id, "state": self.state, "attrs": self.attrs,
             "start": self.start.isoformat() if self.start else None,
             "end": self.end.isoformat() if self.end else None,
@@ -188,15 +212,20 @@ class Instance:
     routine: dict[str, Any] | None
     actions: list[PlannedAction] = field(default_factory=list)
 
+    def _valid_actions(self) -> list[PlannedAction]:
+        return [a for a in self.actions if a.start and a.end and not a.disabled and not a.error]
+
     @property
     def start(self) -> datetime:
-        times = [a.start for a in self.actions if a.start and not a.disabled]
+        times = [a.start for a in self._valid_actions() if a.start]
         return min(times) if times else (self.target.slot.start if self.target.slot else self.target.block.start)
 
     @property
     def end(self) -> datetime:
-        times = [a.end for a in self.actions if a.end and not a.disabled]
-        return max(times) if times else (self.target.slot.end if self.target.slot else self.target.block.end)
+        """Latest valid end; never before `start` (rows that run backwards are ignored)."""
+        times = [a.end for a in self._valid_actions() if a.end]
+        end = max(times) if times else (self.target.slot.end if self.target.slot else self.target.block.end)
+        return max(end, self.start)
 
     def to_dict(self) -> dict[str, Any]:
         r = self.resolution
@@ -237,10 +266,7 @@ def plan_instance(target: Target, config: dict[str, Any], tz) -> Instance:
             disabled=action["id"] in disabled,
         )
         try:
-            pa.start = timeexpr.evaluate(action["start"], target.anchors, target.base_date, target.night, tz)
-            pa.end = timeexpr.evaluate(action["end"], target.anchors, target.base_date, target.night, tz)
-            if pa.end <= pa.start:
-                pa.error = "End is not after start"
+            pa.start, pa.end, pa.next_day = evaluate_window(action, target, tz)
         except timeexpr.ExprError as err:
             pa.error = str(err)
         inst.actions.append(pa)
@@ -252,6 +278,62 @@ def plan_range(start: date, end: date, loc: astro.Location, minhag: jcal.Minhag,
     blocks = jcal.blocks_between(start, end, loc, minhag)
     instances = [plan_instance(t, config, loc.tzinfo) for b in blocks for t in targets_for_block(b)]
     return blocks, instances
+
+
+@dataclass(slots=True)
+class ActionCheck:
+    """How one routine row behaves across upcoming occurrences of its part."""
+
+    index: int
+    total: int = 0
+    next_day: int = 0  # occurrences where the end was read as the next day (crosses midnight)
+    invalid: int = 0  # occurrences where the window doesn't work even as next-day
+    error: str | None = None  # expression error (same for every occurrence)
+    next_day_example: dict[str, str] | None = None
+    invalid_example: dict[str, str] | None = None
+    first: dict[str, Any] | None = None  # next valid occurrence, for previews
+
+    @property
+    def always_invalid(self) -> bool:
+        return self.total > 0 and self.invalid == self.total
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"index": self.index, "total": self.total, "next_day": self.next_day, "invalid": self.invalid,
+                "always_invalid": self.always_invalid, "error": self.error, "first": self.first,
+                "next_day_example": self.next_day_example, "invalid_example": self.invalid_example}
+
+
+def check_actions(part: str, actions: list[dict[str, Any]], blocks: list[jcal.Block], tz) -> list[ActionCheck]:
+    """Evaluate each action's window on every target of `part` in `blocks`.
+
+    Zmanim move with the seasons, so a row like `sunset` → `7pm` is an evening window in winter but
+    crosses midnight in summer; this reports both, plus windows that never fit.
+    """
+    targets = [t for b in blocks for t in targets_for_block(b) if t.part == part]
+    results = []
+    for i, action in enumerate(actions):
+        res = ActionCheck(index=i)
+        for t in targets:
+            try:
+                timeexpr.evaluate(action["start"], t.anchors, t.base_date, t.night, tz)
+                timeexpr.evaluate(action["end"], t.anchors, t.base_date, t.night, tz)
+            except timeexpr.ExprError as err:
+                res.error = str(err)
+                break
+            res.total += 1
+            try:
+                start, end, next_day = evaluate_window(action, t, tz)
+            except timeexpr.ExprError:
+                res.invalid += 1
+                res.invalid_example = res.invalid_example or {"key": t.key, "title": t.title}
+                continue
+            occurrence = {"key": t.key, "title": t.title, "start": start.isoformat(), "end": end.isoformat()}
+            res.first = res.first or {**occurrence, "next_day": next_day}
+            if next_day:
+                res.next_day += 1
+                res.next_day_example = res.next_day_example or occurrence
+        results.append(res)
+    return results
 
 
 # ---------------------------------------------------------------- desired-state timeline

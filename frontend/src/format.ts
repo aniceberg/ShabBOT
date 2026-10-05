@@ -47,10 +47,36 @@ export const ANCHOR_LABEL: Record<string, string> = {
   candle_lighting: "Candle lighting",
   sunset: "Sunset",
   tzeit: "Nightfall (tzeit)",
+  havdalah: "Havdalah (end of Shabbat/Yom Tov)",
+  midnight: "Midnight",
+  slot_start: "Start of this meal period",
+  slot_end: "End of this meal period",
+  block_start: "Candle lighting (start of Shabbat/Yom Tov)",
+  block_end: "Havdalah (end of Shabbat/Yom Tov)",
+};
+
+/** Short names for the "Insert time" chips. */
+export const ANCHOR_CHIP: Record<string, string> = {
+  sunset: "Sunset",
+  candle_lighting: "Candle lighting",
+  tzeit: "Nightfall",
   havdalah: "Havdalah",
   midnight: "Midnight",
-  slot_start: "Meal period start",
-  slot_end: "Meal period end",
-  block_start: "Shabbat/YT start",
-  block_end: "Shabbat/YT end",
+  sunrise: "Sunrise",
+  chatzot: "Midday",
 };
+
+const EXPR_ALIASES: Record<string, string> = {
+  candles: "candle_lighting", candlelighting: "candle_lighting", nightfall: "tzeit",
+  start: "slot_start", end: "slot_end", "12am": "midnight",
+};
+
+/** Plain-language reading of a time expression, e.g. "sunset+18m" → "Sunset + 18m". Null for clock times etc. */
+export function describeExpr(expr: string): string | null {
+  const m = expr.trim().toLowerCase().match(/^([a-z_]+)\s*(.*)$/);
+  if (!m) return null;
+  const label = ANCHOR_LABEL[EXPR_ALIASES[m[1]] ?? m[1]];
+  if (!label) return null;
+  const offset = m[2].replace(/\s+/g, "").replace(/([+-])/g, " $1 ").trim();
+  return offset ? `${label} ${offset}` : label;
+}

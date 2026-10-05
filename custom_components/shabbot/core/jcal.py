@@ -9,7 +9,7 @@ the night meal (evening before) and the day meal.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from enum import StrEnum
 
 from pyluach.dates import GregorianDate
@@ -65,6 +65,10 @@ class Minhag:
     havdalah_minutes: int = 50
     israel: bool = False
     use_elevation: bool = False
+    # Early Shabbat (summer): light at this clock time when the normal candle lighting is later than
+    # `early_shabbat_after`. Never before plag hamincha. Plain Shabbat only (not when it is also Yom Tov).
+    early_shabbat_time: time | None = None
+    early_shabbat_after: time | None = None
 
 
 def yom_tov(d: date, israel: bool) -> Holiday | None:
@@ -163,6 +167,8 @@ class Slot:
     day_in_block: int
     block_id: str
     anchors: dict[str, datetime] = field(default_factory=dict)
+    # Anchors for "the next day", used when an end time falls before its start (e.g. sunset → sunrise).
+    next_anchors: dict[str, datetime] = field(default_factory=dict)
 
     @property
     def title(self) -> str:
@@ -200,6 +206,7 @@ class Block:
     start: datetime  # candle lighting on erev
     end: datetime  # havdalah after the last day
     slots: list[Slot]
+    normal_start: datetime | None = None  # set when Shabbat starts early: the normal candle-lighting time
 
     @property
     def title(self) -> str:
@@ -221,6 +228,7 @@ class Block:
             "days": [d.isoformat() for d in self.days],
             "start": self.start.isoformat(),
             "end": self.end.isoformat(),
+            "normal_start": self.normal_start.isoformat() if self.normal_start else None,
             "slots": [s.to_dict() for s in self.slots],
         }
 
@@ -240,7 +248,8 @@ def build_block(days: list[date], loc: astro.Location, minhag: Minhag) -> Block:
         return zm[d]
 
     erev = days[0] - timedelta(days=1)
-    block_start = z(erev).candle_lighting
+    normal_start = z(erev).candle_lighting
+    block_start = _early_shabbat_start(days[0], z(erev), minhag) or normal_start
     block_end = z(days[-1]).havdalah
 
     slots: list[Slot] = []
@@ -250,33 +259,47 @@ def build_block(days: list[date], loc: astro.Location, minhag: Minhag) -> Block:
         holiday = yom_tov(d, minhag.israel)
         # Night begins at candle lighting; except when continuing from a prior Issur day
         # into Yom Tov (candles are lit after tzeit). Into Shabbat, candles are always pre-sunset.
-        night_start = z(prev).candle_lighting if i == 0 or is_shabbat else z(prev).havdalah
+        if i == 0:  # noqa: SIM108 - nested ternary reads worse
+            night_start = block_start
+        else:
+            night_start = z(prev).candle_lighting if is_shabbat else z(prev).havdalah
         day_start = z(d).sunrise
         day_end = block_end if i == len(days) - 1 else (
             z(d).candle_lighting if days[i + 1].weekday() == 5 else z(d).havdalah
         )
         common = dict(day=d, is_shabbat=is_shabbat, holiday=holiday, day_in_block=i + 1, block_id=block_id)
-        night_anchors = {
-            **z(prev).anchors(),
-            "midnight": _next_midnight(prev, loc),
-            "slot_start": night_start,
-            "slot_end": day_start,
-            "block_start": block_start,
-            "block_end": block_end,
-        }
-        day_anchors = {
-            **z(d).anchors(),
-            "midnight": _next_midnight(d, loc),
-            "slot_start": day_start,
-            "slot_end": day_end,
-            "block_start": block_start,
-            "block_end": block_end,
-        }
+        # "havdalah" always means the real end of this Shabbat/Yom Tov, and a night's "candle_lighting"
+        # is when candles are actually lit that night (after tzeit on a second Yom Tov night).
+        fixed = {"block_start": block_start, "block_end": block_end, "havdalah": block_end}
+        night_fixed = {**fixed, "slot_start": night_start, "slot_end": day_start}
+        day_fixed = {**fixed, "slot_start": day_start, "slot_end": day_end}
+        night_anchors = {**z(prev).anchors(), "midnight": _next_midnight(prev, loc), **night_fixed,
+                         "candle_lighting": night_start}
+        day_anchors = {**z(d).anchors(), "midnight": _next_midnight(d, loc), **day_fixed}
+        nxt = d + timedelta(days=1)
         slots.append(Slot(key=f"{d.isoformat()}/night", part=Part.NIGHT, base_date=prev,
-                          start=night_start, end=day_start, anchors=night_anchors, **common))
+                          start=night_start, end=day_start, anchors=night_anchors,
+                          next_anchors={**z(d).anchors(), "midnight": _next_midnight(d, loc), **night_fixed},
+                          **common))
         slots.append(Slot(key=f"{d.isoformat()}/day", part=Part.DAY, base_date=d,
-                          start=day_start, end=day_end, anchors=day_anchors, **common))
-    return Block(id=block_id, days=days, start=block_start, end=block_end, slots=slots)
+                          start=day_start, end=day_end, anchors=day_anchors,
+                          next_anchors={**z(nxt).anchors(), "midnight": _next_midnight(nxt, loc), **day_fixed},
+                          **common))
+    return Block(id=block_id, days=days, start=block_start, end=block_end, slots=slots,
+                 normal_start=normal_start if block_start != normal_start else None)
+
+
+def _early_shabbat_start(first_day: date, erev: Zmanim, minhag: Minhag) -> datetime | None:
+    """Early candle lighting for a plain Shabbat, or None to use the normal time."""
+    if minhag.early_shabbat_time is None or first_day.weekday() != 5 or yom_tov(first_day, minhag.israel):
+        return None
+    normal = erev.candle_lighting
+    after = minhag.early_shabbat_after or minhag.early_shabbat_time
+    if normal.timetz().replace(tzinfo=None) <= after:
+        return None
+    early = datetime.combine(erev.date, minhag.early_shabbat_time, tzinfo=normal.tzinfo)
+    early = max(early, _ceil_minute(erev.plag))  # Shabbat can't be accepted before plag hamincha
+    return early if early < normal else None
 
 
 def blocks_between(start: date, end: date, loc: astro.Location, minhag: Minhag) -> list[Block]:

@@ -111,6 +111,9 @@ SETTINGS_SCHEMA = vol.Schema({
     vol.Optional("havdalah_minutes"): vol.All(vol.Coerce(int), vol.Range(min=20, max=90)),
     vol.Optional("israel"): bool,
     vol.Optional("use_elevation"): bool,
+    vol.Optional("early_shabbat"): bool,
+    vol.Optional("early_shabbat_time"): vol.Match(r"^([01]\d|2[0-3]):[0-5]\d$"),
+    vol.Optional("early_shabbat_after"): vol.Match(r"^([01]\d|2[0-3]):[0-5]\d$"),
     vol.Optional("latitude"): vol.Any(None, vol.All(vol.Coerce(float), vol.Range(min=-90, max=90))),
     vol.Optional("longitude"): vol.Any(None, vol.All(vol.Coerce(float), vol.Range(min=-180, max=180))),
     vol.Optional("dry_run"): bool,
@@ -274,6 +277,25 @@ async def ws_export(hass, connection, msg) -> None:
                                        "devices": c["devices"]})
 
 
+def _check_routine(m: ShabbotManager, part: str, actions: list[dict]) -> list[planner.ActionCheck]:
+    """Check each row against every occurrence of `part` in the next year."""
+    today, now = m.now().date(), m.now()
+    blocks = [b for b in jcal.blocks_between(today, today + timedelta(days=365), m.location, m.minhag) if b.end > now]
+    return planner.check_actions(part, actions, blocks, m.location.tzinfo)
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "shabbot/routine/check",
+    vol.Required("part"): vol.In(PARTS),
+    vol.Required("actions"): [{vol.Required("start"): str, vol.Required("end"): str}],
+})
+@websocket_api.async_response
+@_ready
+async def ws_routine_check(hass, connection, msg) -> None:
+    actions = [{"start": a["start"], "end": a["end"]} for a in msg["actions"]]
+    connection.send_result(msg["id"], [c.to_dict() for c in _check_routine(_mgr(hass), msg["part"], actions)])
+
+
 # ---------------------------------------------------------------- writes
 
 
@@ -284,6 +306,10 @@ async def ws_export(hass, connection, msg) -> None:
 async def ws_routine_save(hass, connection, msg) -> None:
     m = _mgr(hass)
     routine = ROUTINE_SCHEMA(msg["routine"])
+    for check in _check_routine(m, routine["part"], routine["actions"]):
+        if check.always_invalid:
+            entity = routine["actions"][check.index]["entity_id"]
+            raise vol.Invalid(f"Row {check.index + 1} ({entity}): the end time is never after the start time")
     routine["id"] = routine.get("id") or new_id()
     for action in routine["actions"]:
         action["id"] = action.get("id") or new_id()
@@ -508,7 +534,7 @@ async def ws_learn(hass, connection, msg) -> None:
 @callback
 def async_setup_websocket(hass: HomeAssistant) -> None:
     for handler in (
-        ws_config, ws_plan, ws_timeline, ws_preview, ws_status, ws_activity, ws_subscribe, ws_export,
+        ws_config, ws_plan, ws_timeline, ws_preview, ws_status, ws_activity, ws_subscribe, ws_export, ws_routine_check,
         ws_routine_save, ws_routine_delete, ws_rules_save, ws_modes_save, ws_device_save, ws_device_delete,
         ws_zwave_preset, ws_settings_save, ws_assignment_set, ws_override_start, ws_override_end, ws_resume,
         ws_import, ws_learn,

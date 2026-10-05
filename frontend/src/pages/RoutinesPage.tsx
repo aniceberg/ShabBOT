@@ -3,8 +3,8 @@ import { callWS } from "../hass";
 import { errorMessage, invalidateAll, useConfig } from "../api";
 import { Field, Icon, Loading, SaveBar } from "../components/ui";
 import { EntityPicker, ExprInput } from "../components/inputs";
-import { PART_LABEL } from "../format";
-import type { Action, Part, Routine } from "../types";
+import { dateShort, PART_LABEL, time } from "../format";
+import type { Action, Part, Routine, RowCheck } from "../types";
 
 const PARTS: Part[] = ["night", "day", "block"];
 const PART_HELP: Record<Part, string> = {
@@ -18,8 +18,8 @@ const blankAction = (part: Part): Action => ({
   id: "",
   entity_id: "",
   state: part === "block" ? "off" : "on",
-  start: part === "block" ? "block_start" : part === "night" ? "sunset" : "11:30am",
-  end: part === "block" ? "block_end" : part === "night" ? "midnight" : "3pm",
+  start: part === "block" ? "candle_lighting" : part === "night" ? "sunset" : "11:30am",
+  end: part === "block" ? "havdalah" : part === "night" ? "midnight" : "3pm",
   end_state: null,
 });
 
@@ -31,6 +31,7 @@ export function RoutinesPage() {
   const [error, setError] = useState("");
 
   const routines = useMemo(() => Object.values(data?.config.routines ?? {}), [data]);
+  const checks = useRowChecks(draft);
   useEffect(() => {
     if (!data) return;
     if (selected === null && routines.length) setSelected(routines[0].id);
@@ -115,7 +116,7 @@ export function RoutinesPage() {
       </div>
 
       {draft ? (
-        <div className="sb-card sb-card-pad sb-stack">
+        <div className="sb-card sb-card-pad sb-stack sb-editor">
           <div className="sb-grid-2">
             <Field label="Name"><input className="sb-input" value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} /></Field>
             <Field label="Runs for">
@@ -146,8 +147,9 @@ export function RoutinesPage() {
             </div>
             {draft.actions.map((a, i) => (
               <div key={a.id || i} className="sb-action">
-                <EntityPicker value={a.entity_id} onChange={(v) => setAction(i, { entity_id: v })} />
+                <div><span className="sb-cell-label">Device</span><EntityPicker value={a.entity_id} onChange={(v) => setAction(i, { entity_id: v })} /></div>
                 <div className="sb-stack" style={{ gap: 4 }}>
+                  <span className="sb-cell-label">State</span>
                   <select className="sb-select" value={a.state} onChange={(e) => setAction(i, { state: e.target.value as "on" | "off" })}>
                     <option value="on">On</option><option value="off">Off</option>
                   </select>
@@ -160,19 +162,20 @@ export function RoutinesPage() {
                       value={a.temperature ?? ""} onChange={(e) => setAction(i, { temperature: e.target.value ? Number(e.target.value) : null })} />
                   )}
                 </div>
-                <ExprInput value={a.start} onChange={(v) => setAction(i, { start: v })} part={draft.part} />
-                <ExprInput value={a.end} onChange={(v) => setAction(i, { end: v })} part={draft.part} />
-                <select className="sb-select" value={a.end_state ?? ""} title="What to do when the window ends (if no other routine covers it)"
+                <div><span className="sb-cell-label">From</span><ExprInput value={a.start} onChange={(v) => setAction(i, { start: v })} part={draft.part} resolved={checks[i]?.first?.start} /></div>
+                <div><span className="sb-cell-label">Until</span><ExprInput value={a.end} onChange={(v) => setAction(i, { end: v })} part={draft.part} resolved={checks[i]?.first?.end} /></div>
+                <div><span className="sb-cell-label">Afterwards</span><select className="sb-select" value={a.end_state ?? ""} title="What to do when the window ends (if no other routine covers it)"
                   onChange={(e) => setAction(i, { end_state: (e.target.value || null) as Action["end_state"] })}>
                   <option value="">{a.state === "on" ? "Turn off" : "Leave as is"}</option>
                   <option value="off">Turn off</option>
                   <option value="on">Turn on</option>
                   <option value="leave">Leave as is</option>
-                </select>
+                </select></div>
                 <button className="sb-btn sb-btn-ghost sb-icon-btn sb-btn-danger" aria-label="Remove device"
                   onClick={() => setDraft({ ...draft, actions: draft.actions.filter((_, j) => j !== i) })}>
                   <Icon name="trash" size={16} />
                 </button>
+                <RowMessage check={checks[i]} />
               </div>
             ))}
           </div>
@@ -183,7 +186,8 @@ export function RoutinesPage() {
             <span className="sb-spacer" />
             {draft.id && <button className="sb-btn sb-btn-danger" onClick={remove}>Delete routine</button>}
           </div>
-          <SaveBar dirty={dirty || !draft.id} saving={saving} error={error} onSave={save}
+          <SaveBar dirty={(dirty || !draft.id) && !checks.some((c) => c?.always_invalid)} saving={saving}
+            error={error || (checks.some((c) => c?.always_invalid) ? "Fix the rows whose times can't work." : "")} onSave={save}
             onReset={original ? () => setDraft(structuredClone(original)) : undefined} />
         </div>
       ) : (
@@ -191,4 +195,55 @@ export function RoutinesPage() {
       )}
     </div>
   );
+}
+
+/** Checks each row's start/end against every matching meal in the next year (zmanim move with the seasons). */
+function useRowChecks(draft: Routine | null): (RowCheck | undefined)[] {
+  const [checks, setChecks] = useState<RowCheck[]>([]);
+  useEffect(() => setChecks([]), [draft?.id]); // don't show another routine's results
+  const key = draft ? JSON.stringify([draft.part, draft.actions.map((a) => [a.start, a.end])]) : "";
+  useEffect(() => {
+    if (!draft) return;
+    const actions = draft.actions.map((a) => ({ start: a.start, end: a.end }));
+    if (actions.some((a) => !a.start.trim() || !a.end.trim())) return;
+    let cancelled = false;
+    const t = setTimeout(() => {
+      callWS<RowCheck[]>({ type: "shabbot/routine/check", part: draft.part, actions })
+        .then((r) => !cancelled && setChecks(r), () => !cancelled && setChecks([]));
+    }, 400);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
+  return draft ? draft.actions.map((_, i) => checks[i]) : [];
+}
+
+const duration = (start: string, end: string) => {
+  const mins = Math.round((+new Date(end) - +new Date(start)) / 60000);
+  return `${Math.floor(mins / 60)} h${mins % 60 ? ` ${mins % 60} m` : ""}`;
+};
+
+function RowMessage({ check }: { check?: RowCheck }) {
+  if (!check || check.error || check.total === 0) return null;
+  if (check.always_invalid) {
+    return (
+      <div className="sb-row-msg sb-error">
+        These times can't work: the end is never after the start, even counting it as the next day.
+      </div>
+    );
+  }
+  const parts: string[] = [];
+  const ex = check.next_day_example;
+  if (ex) {
+    const when = `${dateShort(ex.start)} ${time(ex.start)} → ${dateShort(ex.end)} ${time(ex.end)}, ${duration(ex.start, ex.end)}`;
+    parts.push(check.next_day === check.total
+      ? `Crosses midnight: ends the next day (${when}).`
+      : `On ${check.next_day} of ${check.total} dates this crosses midnight and ends the next day, because the zmanim shift with the seasons (first: ${when}).`);
+  }
+  if (check.invalid > 0) {
+    parts.push(`Skipped on ${check.invalid} of ${check.total} dates where the times can't work${check.invalid_example ? ` (first: ${check.invalid_example.title})` : ""}.`);
+  }
+  if (parts.length === 0) return null;
+  return <div className="sb-row-msg sb-warn-text">{parts.join(" ")}</div>;
 }
