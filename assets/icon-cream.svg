@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512"><rect width="512" height="512" rx="112.6" fill="#f6e9d9"/><g transform="translate(37.42,78.63) scale(0.58289)">
+  <line x1="638" y1="170" x2="638" y2="300" stroke="#0c1935" stroke-width="12" stroke-linecap="round"/>
+  <circle cx="638" cy="140" r="31" fill="#4d9bf9"/>
+  <path d="M128,300 H96 A34,34 0 0 0 62,334 V438 A34,34 0 0 0 96,472 H128 Z" fill="#ffffff" stroke="#0c1935" stroke-width="14" stroke-linejoin="round"/>
+  <path d="M617,300 H649 A34,34 0 0 1 683,334 V438 A34,34 0 0 1 649,472 H617 Z" fill="#ffffff" stroke="#0c1935" stroke-width="14" stroke-linejoin="round"/>
+  <rect x="140" y="190" width="465" height="372" rx="125" fill="#ffffff" stroke="#0c1935" stroke-width="14" stroke-linejoin="round"/>
+  <rect x="185" y="272" width="375" height="218" rx="92" fill="#0c1935"/>
+  <path d="M236,414 A44,44 0 0 1 324,414 M436,414 A44,44 0 0 1 524,414" fill="none" stroke="#a9c8ff"
+        stroke-width="18" stroke-linecap="round"/>
+  <path d="M206,168 A171,124 0 0 1 548,168 Z" fill="#ffffff" stroke="#0c1935"
+        stroke-width="14" stroke-linejoin="round"/>
+  <path d="M377.0,64.0 L409.0,119.5 L345.0,119.5 Z M377.0,138.0 L345.0,82.5 L409.0,82.5 Z" fill="none" stroke="#0c1935" stroke-width="8" stroke-linejoin="round"/></g></svg>

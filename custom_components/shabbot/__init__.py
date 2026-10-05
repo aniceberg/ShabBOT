@@ -19,6 +19,8 @@ from .websocket import async_setup_websocket
 
 PLATFORMS = [Platform.BINARY_SENSOR, Platform.CALENDAR, Platform.SELECT, Platform.SENSOR, Platform.SWITCH]
 FRONTEND_DIR = Path(__file__).parent / "frontend"
+STATIC_DIR = Path(__file__).parent / "static"
+ICONS_URL = f"{PANEL_STATIC_URL}_icons/shabbot-icons.js?v={VERSION}"
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 type ShabbotConfigEntry = ConfigEntry[ShabbotManager]
@@ -55,16 +57,20 @@ async def async_unload_entry(hass: HomeAssistant, entry: ShabbotConfigEntry) -> 
     if unloaded:
         await entry.runtime_data.async_stop()
         frontend.async_remove_panel(hass, PANEL_URL)
+        frontend.remove_extra_js_url(hass, ICONS_URL)
         hass.data.pop(DOMAIN, None)
     return unloaded
 
 
 async def _async_register_panel(hass: HomeAssistant) -> None:
     if not hass.data.get(f"{DOMAIN}_static"):
-        await hass.http.async_register_static_paths(
-            [StaticPathConfig(PANEL_STATIC_URL, str(FRONTEND_DIR), cache_headers=False)]
-        )
+        await hass.http.async_register_static_paths([
+            StaticPathConfig(PANEL_STATIC_URL, str(FRONTEND_DIR), cache_headers=False),
+            StaticPathConfig(f"{PANEL_STATIC_URL}_icons", str(STATIC_DIR), cache_headers=False),
+        ])
         hass.data[f"{DOMAIN}_static"] = True
+    # Registers the "shabbot:logo" icon on every frontend page so the sidebar can show it.
+    frontend.add_extra_js_url(hass, ICONS_URL)
     if PANEL_URL in hass.data.get(frontend.DATA_PANELS, {}):
         return
     await panel_custom.async_register_panel(

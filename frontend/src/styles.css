@@ -9,6 +9,7 @@ shabbot-panel {
   --accent-soft: #e6edfc;
   --accent-text: #ffffff;
   --candle: #b4690e;
+  --brand-blue: #3a6fe0;
   --candle-soft: rgba(245, 168, 50, 0.16);
   --danger: #c2341b;
   --danger-soft: #fbe9e5;
@@ -38,6 +39,7 @@ shabbot-panel[data-color-scheme="dark"] {
   --accent-soft: #23314f;
   --accent-text: #0d1730;
   --candle: #f2b45c;
+  --brand-blue: #6f9cf2;
   --candle-soft: rgba(242, 180, 92, 0.13);
   --danger: #ff8a73;
   --danger-soft: #3b2420;
@@ -80,15 +82,24 @@ shabbot-panel *::after {
 
 .sb-title {
   font-size: 20px;
-  font-weight: 600;
+  font-weight: 700;
   letter-spacing: -0.01em;
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
-.sb-title svg {
-  color: var(--candle);
+.sb-logo {
+  display: inline-flex;
+}
+
+.sb-logo svg {
+  width: 30px;
+  height: 30px;
+}
+
+.sb-title-bot {
+  color: var(--brand-blue);
 }
 
 .sb-status {

@@ -1,3 +1,5 @@
+<p align="center"><img src="assets/banner.svg" alt="ShabBOT — Shabbat &amp; Yom Tov automation for Home Assistant" width="640"></p>
+
 # ShabBOT
 
 Shabbat & Yom Tov automation for Home Assistant. Home Assistant stays the hub for every device (Lutron, SmartThings, Z-Wave, Kasa, …); ShabBOT decides what those devices do during Shabbat and Yom Tov, and keeps them that way.
@@ -92,6 +94,12 @@ Run a throwaway Home Assistant against the working tree:
 
 ```bash
 uv run hass -c .devha        # .devha/custom_components/shabbot → ../../custom_components/shabbot
+```
+
+Brand assets (integration icon/logo, sidebar icon, panel header icon, this README's banner) are generated from vector shapes:
+
+```bash
+DYLD_FALLBACK_LIBRARY_PATH=/usr/local/lib uvx --with cairosvg --with fonttools python assets/build_brand.py
 ```
 
 Release: publish a GitHub release tagged `vX.Y.Z`; the workflow builds the panel and attaches `shabbot.zip` for HACS.

@@ -1,7 +1,6 @@
 import { useEffect, type ReactNode } from "react";
 
 const PATHS = {
-  candle: "M12 1.5c2 2.3 2.8 3.9 2.8 5.2a2.8 2.8 0 0 1-5.6 0c0-1.3.8-2.9 2.8-5.2zM8.5 11h7v10.5h-7z",
   close: "M6 6l12 12M18 6L6 18",
   menu: "M4 7h16M4 12h16M4 17h16",
   left: "M15 6l-6 6 6 6",
@@ -15,10 +14,8 @@ const PATHS = {
 } as const;
 
 export function Icon({ name, size = 18 }: { name: keyof typeof PATHS; size?: number }) {
-  const filled = name === "candle";
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true"
-      fill={filled ? "currentColor" : "none"} stroke={filled ? "none" : "currentColor"}
+    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor"
       strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
       <path d={PATHS[name]} />
     </svg>

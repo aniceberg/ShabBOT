@@ -2,6 +2,7 @@ import { useState } from "react";
 import { invalidateAll, useStatus } from "./api";
 import { callWS } from "./hass";
 import { Icon } from "./components/ui";
+import { ICON_SVG } from "./brand";
 import { dayTime, time } from "./format";
 import { CalendarPage } from "./pages/CalendarPage";
 import { RoutinesPage } from "./pages/RoutinesPage";
@@ -49,7 +50,10 @@ export function App({ narrow }: { narrow: boolean }) {
               <Icon name="menu" />
             </button>
           )}
-          <div className="sb-title"><Icon name="candle" size={22} /> ShabBOT</div>
+          <div className="sb-title">
+            <span className="sb-logo" aria-hidden="true" dangerouslySetInnerHTML={{ __html: ICON_SVG }} />
+            <span>Shab<span className="sb-title-bot">BOT</span></span>
+          </div>
           <div className="sb-status">
             {s?.issur_melacha && s.block ? (
               <span className="sb-badge sb-badge-candle">{s.block.title} until {time(s.block.end)}</span>

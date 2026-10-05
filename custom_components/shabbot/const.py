@@ -15,7 +15,7 @@ STORAGE_KEY_ACTIVITY: Final = f"{DOMAIN}.activity"
 PANEL_URL: Final = "shabbot"
 PANEL_STATIC_URL: Final = "/shabbot_static"
 PANEL_COMPONENT: Final = "shabbot-panel"
-PANEL_ICON: Final = "mdi:candle"
+PANEL_ICON: Final = "shabbot:logo"
 
 SIGNAL_UPDATE: Final = f"{DOMAIN}_update"  # plan/status changed
 SIGNAL_ACTIVITY: Final = f"{DOMAIN}_activity"  # one activity entry
