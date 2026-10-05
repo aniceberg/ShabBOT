@@ -1,0 +1,332 @@
+"""Planner: blocks + routines + rules + modes + assignments -> desired device states.
+
+Pure functions over plain dicts (the persisted config), so it is easy to test
+and to call from the websocket API for arbitrary calendar ranges.
+
+Config shapes (see store.py for defaults):
+
+routine   {id, name, part: night|day|block, color, actions: [action]}
+action    {id, entity_id, state: on|off, brightness?: 1-100, temperature?: float,
+           start: expr, end: expr, end_state?: on|off|leave}
+rule      {id, name, part, match: {day_type?, holiday_group?, holiday?, day_in_block?, weekday?}, routine_id|None}
+mode      {id, name, enabled, start: date, end: date|None, night|day|block: routine_id|"none"|None, protection: bool}
+assignment  assignments[slot_key | "{block_id}/block"] = {routine_id?, skip?, disabled_actions?: [action_id]}
+"""
+
+from __future__ import annotations
+
+from bisect import bisect_right
+from dataclasses import dataclass, field
+from datetime import date, datetime
+from typing import Any
+
+from . import astro, jcal, timeexpr
+
+BLOCK_PART = "block"
+NONE = "none"
+PRIORITY = {BLOCK_PART: 0, "night": 1, "day": 1}
+
+
+@dataclass(slots=True)
+class Target:
+    """A context a routine can be applied to: one slot, or a whole block (baseline)."""
+
+    key: str
+    part: str  # night | day | block
+    block: jcal.Block
+    slot: jcal.Slot | None
+
+    @property
+    def day(self) -> date:
+        return self.slot.day if self.slot else self.block.days[0]
+
+    @property
+    def title(self) -> str:
+        return self.slot.title if self.slot else f"{self.block.title} — Baseline"
+
+    @property
+    def anchors(self) -> dict[str, datetime]:
+        if self.slot:
+            return self.slot.anchors
+        # Baseline: zmanim of the first evening, plus block_start/block_end.
+        first = self.block.slots[0]
+        return {**first.anchors, "slot_start": self.block.start, "slot_end": self.block.end,
+                "havdalah": self.block.end}
+
+    @property
+    def base_date(self) -> date:
+        return self.slot.base_date if self.slot else self.block.slots[0].base_date
+
+    @property
+    def night(self) -> bool:
+        return self.slot is None or self.slot.part is jcal.Part.NIGHT
+
+
+def targets_for_block(block: jcal.Block) -> list[Target]:
+    targets = [Target(key=f"{block.id}/block", part=BLOCK_PART, block=block, slot=None)]
+    targets += [Target(key=s.key, part=s.part.value, block=block, slot=s) for s in block.slots]
+    return targets
+
+
+# ---------------------------------------------------------------- resolution
+
+
+def _rule_matches(match: dict[str, Any], target: Target) -> bool:
+    slots = [target.slot] if target.slot else target.block.slots
+    for field_name, want in match.items():
+        if want in (None, ""):
+            continue
+        if field_name == "day_type":
+            ok = {
+                "shabbat": lambda: any(s.is_shabbat for s in slots),
+                "yomtov": lambda: any(s.holiday for s in slots),
+                "shabbat_only": lambda: all(s.is_shabbat and not s.holiday for s in slots),
+                "yomtov_only": lambda: all(s.holiday and not s.is_shabbat for s in slots),
+            }.get(want, lambda: False)()
+        elif field_name == "holiday_group":
+            ok = any(s.holiday and s.holiday.group == want for s in slots)
+        elif field_name == "holiday":
+            ok = any(s.holiday and s.holiday.name == want for s in slots)
+        elif field_name == "day_in_block":
+            ok = target.slot is not None and target.slot.day_in_block == int(want)
+        elif field_name == "weekday":
+            ok = target.slot is not None and target.slot.day.weekday() == int(want)
+        else:
+            ok = False
+        if not ok:
+            return False
+    return True
+
+
+def _specificity(rule: dict[str, Any]) -> int:
+    return sum(1 for v in (rule.get("match") or {}).values() if v not in (None, ""))
+
+
+def active_mode(modes: list[dict[str, Any]], day: date) -> dict[str, Any] | None:
+    found = None
+    for mode in modes:
+        if not mode.get("enabled", True):
+            continue
+        start = date.fromisoformat(mode["start"])
+        end = date.fromisoformat(mode["end"]) if mode.get("end") else None
+        in_range = start <= day and (end is None or day <= end)
+        if in_range and (found is None or start >= date.fromisoformat(found["start"])):
+            found = mode
+    return found
+
+
+@dataclass(slots=True)
+class Resolution:
+    routine_id: str | None
+    source: str  # assignment | mode | rule | skipped | none
+    source_name: str = ""
+    default_routine_id: str | None = None  # what would apply without the per-occurrence assignment
+
+
+def resolve(target: Target, config: dict[str, Any]) -> Resolution:
+    default = _resolve_default(target, config)
+    assignment = (config.get("assignments") or {}).get(target.key) or {}
+    if assignment.get("skip"):
+        return Resolution(None, "skipped", "Skipped", default.routine_id)
+    if assignment.get("routine_id") and assignment["routine_id"] in config.get("routines", {}):
+        return Resolution(assignment["routine_id"], "assignment", "Chosen for this date", default.routine_id)
+    default.default_routine_id = default.routine_id
+    return default
+
+
+def _resolve_default(target: Target, config: dict[str, Any]) -> Resolution:
+    routines = config.get("routines", {})
+    mode = active_mode(config.get("modes", []), target.day)
+    if mode is not None and mode.get(target.part) is not None:
+        rid = mode[target.part]
+        if rid == NONE or rid not in routines:
+            return Resolution(None, "mode", mode["name"])
+        return Resolution(rid, "mode", mode["name"])
+    candidates = [
+        (i, r) for i, r in enumerate(config.get("rules", []))
+        if r.get("part") == target.part and r.get("enabled", True) and _rule_matches(r.get("match") or {}, target)
+    ]
+    if candidates:
+        _, rule = max(candidates, key=lambda ir: (_specificity(ir[1]), -ir[0]))
+        rid = rule.get("routine_id")
+        if rid and rid in routines:
+            return Resolution(rid, "rule", rule.get("name", ""))
+        return Resolution(None, "rule", rule.get("name", ""))
+    return Resolution(None, "none")
+
+
+# ---------------------------------------------------------------- planning
+
+
+@dataclass(slots=True)
+class PlannedAction:
+    action_id: str
+    entity_id: str
+    state: str
+    attrs: dict[str, Any]
+    start: datetime | None
+    end: datetime | None
+    end_state: str
+    disabled: bool = False
+    error: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "action_id": self.action_id, "entity_id": self.entity_id, "state": self.state, "attrs": self.attrs,
+            "start": self.start.isoformat() if self.start else None,
+            "end": self.end.isoformat() if self.end else None,
+            "end_state": self.end_state, "disabled": self.disabled, "error": self.error,
+        }
+
+
+@dataclass(slots=True)
+class Instance:
+    """One routine applied to one target (slot or block)."""
+
+    target: Target
+    resolution: Resolution
+    routine: dict[str, Any] | None
+    actions: list[PlannedAction] = field(default_factory=list)
+
+    @property
+    def start(self) -> datetime:
+        times = [a.start for a in self.actions if a.start and not a.disabled]
+        return min(times) if times else (self.target.slot.start if self.target.slot else self.target.block.start)
+
+    @property
+    def end(self) -> datetime:
+        times = [a.end for a in self.actions if a.end and not a.disabled]
+        return max(times) if times else (self.target.slot.end if self.target.slot else self.target.block.end)
+
+    def to_dict(self) -> dict[str, Any]:
+        r = self.resolution
+        return {
+            "key": self.target.key,
+            "part": self.target.part,
+            "block_id": self.target.block.id,
+            "slot": self.target.slot.to_dict() if self.target.slot else None,
+            "target_title": self.target.title,
+            "routine_id": r.routine_id,
+            "routine_name": self.routine["name"] if self.routine else None,
+            "color": (self.routine or {}).get("color"),
+            "source": r.source,
+            "source_name": r.source_name,
+            "default_routine_id": r.default_routine_id,
+            "start": self.start.isoformat(),
+            "end": self.end.isoformat(),
+            "actions": [a.to_dict() for a in self.actions],
+        }
+
+
+def default_end_state(state: str) -> str:
+    return "off" if state == "on" else "leave"
+
+
+def plan_instance(target: Target, config: dict[str, Any], tz) -> Instance:
+    res = resolve(target, config)
+    routine = config.get("routines", {}).get(res.routine_id) if res.routine_id else None
+    inst = Instance(target=target, resolution=res, routine=routine)
+    if not routine:
+        return inst
+    disabled = set(((config.get("assignments") or {}).get(target.key) or {}).get("disabled_actions") or [])
+    for action in routine.get("actions", []):
+        attrs = {k: action[k] for k in ("brightness", "temperature") if action.get(k) is not None}
+        pa = PlannedAction(
+            action_id=action["id"], entity_id=action["entity_id"], state=action.get("state", "on"), attrs=attrs,
+            start=None, end=None, end_state=action.get("end_state") or default_end_state(action.get("state", "on")),
+            disabled=action["id"] in disabled,
+        )
+        try:
+            pa.start = timeexpr.evaluate(action["start"], target.anchors, target.base_date, target.night, tz)
+            pa.end = timeexpr.evaluate(action["end"], target.anchors, target.base_date, target.night, tz)
+            if pa.end <= pa.start:
+                pa.error = "End is not after start"
+        except timeexpr.ExprError as err:
+            pa.error = str(err)
+        inst.actions.append(pa)
+    return inst
+
+
+def plan_range(start: date, end: date, loc: astro.Location, minhag: jcal.Minhag,
+               config: dict[str, Any]) -> tuple[list[jcal.Block], list[Instance]]:
+    blocks = jcal.blocks_between(start, end, loc, minhag)
+    instances = [plan_instance(t, config, loc.tzinfo) for b in blocks for t in targets_for_block(b)]
+    return blocks, instances
+
+
+# ---------------------------------------------------------------- desired-state timeline
+
+
+@dataclass(slots=True)
+class Interval:
+    entity_id: str
+    start: datetime
+    end: datetime
+    state: str
+    attrs: dict[str, Any]
+    end_state: str
+    priority: int
+    instance_key: str
+    routine_name: str
+    action_id: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "entity_id": self.entity_id, "start": self.start.isoformat(), "end": self.end.isoformat(),
+            "state": self.state, "attrs": self.attrs, "end_state": self.end_state,
+            "instance_key": self.instance_key, "routine_name": self.routine_name, "action_id": self.action_id,
+        }
+
+
+class Timeline:
+    """Per-entity desired states over time; later/higher-priority layers win."""
+
+    def __init__(self, instances: list[Instance]) -> None:
+        self.intervals: dict[str, list[Interval]] = {}
+        for inst in instances:
+            if not inst.routine:
+                continue
+            for a in inst.actions:
+                if a.disabled or a.error or not a.start or not a.end:
+                    continue
+                self.intervals.setdefault(a.entity_id, []).append(Interval(
+                    entity_id=a.entity_id, start=a.start, end=a.end, state=a.state, attrs=a.attrs,
+                    end_state=a.end_state, priority=PRIORITY[inst.target.part], instance_key=inst.target.key,
+                    routine_name=inst.routine["name"], action_id=a.action_id,
+                ))
+        self._bounds: dict[str, list[datetime]] = {}
+        for entity_id, ivs in self.intervals.items():
+            ivs.sort(key=lambda iv: (iv.start, iv.priority))
+            self._bounds[entity_id] = sorted({t for iv in ivs for t in (iv.start, iv.end)})
+
+    @property
+    def entities(self) -> list[str]:
+        return sorted(self.intervals)
+
+    def desired_at(self, entity_id: str, t: datetime) -> Interval | None:
+        best: Interval | None = None
+        for iv in self.intervals.get(entity_id, ()):
+            if iv.start > t:
+                break
+            if iv.start <= t < iv.end and (best is None or (iv.priority, iv.start) >= (best.priority, best.start)):
+                best = iv
+        return best
+
+    def next_boundary(self, after: datetime) -> datetime | None:
+        """Earliest boundary strictly after `after` across all entities."""
+        best = None
+        for bounds in self._bounds.values():
+            i = bisect_right(bounds, after)
+            if i < len(bounds) and (best is None or bounds[i] < best):
+                best = bounds[i]
+        return best
+
+    def entities_with_boundary(self, t: datetime) -> list[str]:
+        return [e for e, bounds in self._bounds.items() if t in bounds]
+
+    def ending_at(self, entity_id: str, t: datetime) -> Interval | None:
+        """The interval that was in effect just before t, if it ends exactly at t."""
+        ending = [iv for iv in self.intervals.get(entity_id, ()) if iv.end == t]
+        if not ending:
+            return None
+        return max(ending, key=lambda iv: (iv.priority, iv.start))

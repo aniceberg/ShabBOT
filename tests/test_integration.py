@@ -1,0 +1,261 @@
+"""End-to-end behaviour inside Home Assistant: executor, protection, overrides."""
+
+from __future__ import annotations
+
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
+
+from freezegun.api import FrozenDateTimeFactory
+from homeassistant.core import Context, HomeAssistant
+from homeassistant.setup import async_setup_component
+import pytest
+from pytest_homeassistant_custom_component.common import MockConfigEntry, async_fire_time_changed
+
+from custom_components.shabbot.const import DOMAIN
+from custom_components.shabbot.manager import ShabbotManager
+
+TZ = ZoneInfo("America/New_York")
+# Friday 2026-10-09, Shabbat Bereshit. Sunset ≈ 18:24, candle lighting 18:06, havdalah Sat ≈ 19:14.
+FRIDAY_AFTERNOON = datetime(2026, 10, 9, 16, 0, tzinfo=TZ)
+
+DEVICES = ["chandelier", "bedroom", "hotplate"]
+
+
+def _action(aid: str, entity: str, start: str, end: str, state: str = "on") -> dict:
+    return {"id": aid, "entity_id": entity, "state": state, "start": start, "end": end}
+
+
+@pytest.fixture
+async def manager(hass: HomeAssistant, freezer: FrozenDateTimeFactory) -> ShabbotManager:
+    freezer.move_to(FRIDAY_AFTERNOON)
+    await hass.config.async_set_time_zone("America/New_York")
+    hass.config.latitude, hass.config.longitude, hass.config.elevation = 40.6501, -73.94958, 18
+    assert await async_setup_component(hass, "input_boolean", {"input_boolean": {d: {} for d in DEVICES}})
+    entry = MockConfigEntry(domain=DOMAIN, unique_id=DOMAIN, data={"candle_lighting_min": 18})
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    m: ShabbotManager = entry.runtime_data
+    m.config["routines"]["fri_standard"]["actions"] = [
+        _action("a1", "input_boolean.chandelier", "sunset+18m", "11:45pm"),
+        _action("a2", "input_boolean.hotplate", "sunset", "sunset+2h"),
+    ]
+    m.config["routines"]["baseline"]["actions"] = [
+        _action("b1", "input_boolean.bedroom", "block_start", "block_end", state="off"),
+        _action("b2", "input_boolean.chandelier", "block_start", "block_end", state="off"),
+    ]
+    m.settings.update(dry_run=False, grace_seconds=4)
+    m.config_changed(reconcile=False)
+    await hass.async_block_till_done()
+    return m
+
+
+async def _advance(hass: HomeAssistant, freezer: FrozenDateTimeFactory, to: datetime | timedelta) -> None:
+    if isinstance(to, timedelta):
+        freezer.tick(to)
+    else:
+        freezer.move_to(to)
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+
+
+async def _user_toggle(hass: HomeAssistant, entity: str, on: bool) -> None:
+    """Simulate someone flipping a switch (a context ShabBOT didn't create)."""
+    await hass.services.async_call("input_boolean", "turn_on" if on else "turn_off",
+                                   {"entity_id": f"input_boolean.{entity}"}, blocking=True, context=Context())
+    await hass.async_block_till_done()
+
+
+def _state(hass: HomeAssistant, entity: str) -> str:
+    return hass.states.get(f"input_boolean.{entity}").state
+
+
+def _block_times(m: ShabbotManager):
+    (block,) = m.upcoming_blocks(3)
+    night = block.slots[0]
+    return block, night.anchors["sunset"]
+
+
+async def test_entities_created(hass: HomeAssistant, manager: ShabbotManager) -> None:
+    assert hass.states.get("binary_sensor.shabbot_issur_melacha").state == "off"
+    candle = hass.states.get("sensor.shabbot_next_candle_lighting").state
+    assert candle.startswith("2026-10-09T22:06")  # 18:06 EDT in UTC
+    assert hass.states.get("select.shabbot_mode").state == "Normal"
+    assert hass.states.get("switch.shabbot_dry_run").state == "off"
+    assert hass.states.get("calendar.shabbot_shabbat_yom_tov").attributes["message"] == "Shabbat"
+
+
+async def test_executor_follows_schedule(hass: HomeAssistant, manager: ShabbotManager,
+                                         freezer: FrozenDateTimeFactory) -> None:
+    block, sunset = _block_times(manager)
+    await _user_toggle(hass, "bedroom", True)
+    await _user_toggle(hass, "chandelier", True)
+    await _advance(hass, freezer, block.start + timedelta(seconds=1))
+    assert hass.states.get("binary_sensor.shabbot_issur_melacha").state == "on"
+    assert _state(hass, "bedroom") == "off"  # baseline
+    assert _state(hass, "chandelier") == "off"
+    await _advance(hass, freezer, sunset + timedelta(seconds=1))
+    assert _state(hass, "hotplate") == "on"
+    await _advance(hass, freezer, sunset + timedelta(minutes=18, seconds=1))
+    assert _state(hass, "chandelier") == "on"
+    await _advance(hass, freezer, sunset + timedelta(hours=2, seconds=1))
+    assert _state(hass, "hotplate") == "off"  # one-shot end state
+    await _advance(hass, freezer, datetime(2026, 10, 9, 23, 45, 1, tzinfo=TZ))
+    assert _state(hass, "chandelier") == "off"  # baseline takes over again
+
+
+async def test_dry_run_changes_nothing(hass: HomeAssistant, manager: ShabbotManager,
+                                       freezer: FrozenDateTimeFactory) -> None:
+    manager.settings["dry_run"] = True
+    _, sunset = _block_times(manager)
+    await _advance(hass, freezer, sunset + timedelta(minutes=18, seconds=1))
+    assert _state(hass, "chandelier") == "off"
+    assert any(e["kind"] == "dry_run" and e["entity_id"] == "input_boolean.chandelier"
+               for e in manager.store.activity)
+
+
+async def test_protection_reverts_after_grace(hass: HomeAssistant, manager: ShabbotManager,
+                                              freezer: FrozenDateTimeFactory) -> None:
+    block, _ = _block_times(manager)
+    await _advance(hass, freezer, block.start + timedelta(minutes=5))
+    await _user_toggle(hass, "bedroom", True)
+    await _advance(hass, freezer, timedelta(seconds=2))
+    assert _state(hass, "bedroom") == "on"  # still within grace window
+    await _advance(hass, freezer, timedelta(seconds=3))
+    assert _state(hass, "bedroom") == "off"
+    assert manager.store.activity[-1]["kind"] == "revert"
+
+
+async def test_protection_poll_catches_missed_events(hass: HomeAssistant, manager: ShabbotManager,
+                                                     freezer: FrozenDateTimeFactory) -> None:
+    block, _ = _block_times(manager)
+    await _advance(hass, freezer, block.start + timedelta(minutes=5))
+    # Write state directly (no state_changed listener path through a service) and drop pending reverts.
+    hass.states.async_set("input_boolean.bedroom", "on", context=Context())
+    await hass.async_block_till_done()
+    manager._cancel_revert("input_boolean.bedroom")
+    await _advance(hass, freezer, timedelta(seconds=61))
+    assert hass.states.get("input_boolean.bedroom").state == "off"
+
+
+async def test_no_protection_outside_issur(hass: HomeAssistant, manager: ShabbotManager,
+                                           freezer: FrozenDateTimeFactory) -> None:
+    await _user_toggle(hass, "bedroom", True)
+    await _advance(hass, freezer, timedelta(seconds=10))
+    assert _state(hass, "bedroom") == "on"
+
+
+async def test_flip_pattern_override(hass: HomeAssistant, manager: ShabbotManager,
+                                     freezer: FrozenDateTimeFactory) -> None:
+    manager.config["devices"]["input_boolean.bedroom"] = {
+        "override": {"detector": "flip_pattern", "count": 3, "window_s": 6}, "override_minutes": 20}
+    manager.config_changed(reconcile=False)
+    block, _ = _block_times(manager)
+    await _advance(hass, freezer, block.start + timedelta(seconds=1))
+    await _advance(hass, freezer, timedelta(minutes=5))
+    for on in (True, False, True):
+        await _user_toggle(hass, "bedroom", on)
+        await _advance(hass, freezer, timedelta(seconds=1))
+    assert "input_boolean.bedroom" in manager.overrides
+    await _advance(hass, freezer, timedelta(minutes=10))
+    assert _state(hass, "bedroom") == "on"  # housekeeper is cleaning
+    await _advance(hass, freezer, timedelta(minutes=11))
+    assert "input_boolean.bedroom" not in manager.overrides
+    assert _state(hass, "bedroom") == "off"  # re-asserted when the override expired
+
+
+async def test_persistence_override(hass: HomeAssistant, manager: ShabbotManager,
+                                    freezer: FrozenDateTimeFactory) -> None:
+    manager.config["devices"]["input_boolean.bedroom"] = {
+        "override": {"detector": "persistence", "count": 3, "window_s": 120}}
+    manager.config_changed(reconcile=False)
+    block, _ = _block_times(manager)
+    await _advance(hass, freezer, block.start + timedelta(minutes=5))
+    for _ in range(2):
+        await _user_toggle(hass, "bedroom", True)
+        await _advance(hass, freezer, timedelta(seconds=5))
+        assert _state(hass, "bedroom") == "off"
+    await _user_toggle(hass, "bedroom", True)  # third time: intentional
+    await _advance(hass, freezer, timedelta(seconds=5))
+    assert _state(hass, "bedroom") == "on"
+    assert "input_boolean.bedroom" in manager.overrides
+
+
+async def test_zwave_triple_tap_override(hass: HomeAssistant, manager: ShabbotManager,
+                                         freezer: FrozenDateTimeFactory) -> None:
+    base = {"device_id": "dev1", "command_class": 91, "value": "KeyPressed3x"}
+    manager.config["devices"]["input_boolean.bedroom"] = {"override": {
+        "detector": "event",
+        "start": {"event_type": "zwave_js_value_notification", "data": {**base, "property_key": "001"}},
+        "end": {"event_type": "zwave_js_value_notification", "data": {**base, "property_key": "002"}},
+    }, "override_group": ["input_boolean.chandelier"]}
+    manager.config_changed(reconcile=False)
+    block, _ = _block_times(manager)
+    await _advance(hass, freezer, block.start + timedelta(minutes=5))
+    # Triple-tap up: the switch's local control turns the load on, and the scene event arrives.
+    await _user_toggle(hass, "bedroom", True)
+    hass.bus.async_fire("zwave_js_value_notification", {**base, "property_key": "001", "node_id": 7})
+    await _advance(hass, freezer, timedelta(seconds=10))
+    assert _state(hass, "bedroom") == "on"
+    assert set(manager.overrides) == {"input_boolean.bedroom", "input_boolean.chandelier"}
+    # A different paddle/press count is ignored.
+    hass.bus.async_fire("zwave_js_value_notification", {**base, "property_key": "002", "value": "KeyPressed"})
+    await hass.async_block_till_done()
+    assert "input_boolean.bedroom" in manager.overrides
+    # Triple-tap down ends it early and re-asserts.
+    hass.bus.async_fire("zwave_js_value_notification", {**base, "property_key": "002"})
+    await _advance(hass, freezer, timedelta(seconds=1))
+    assert manager.overrides == {}
+    assert _state(hass, "bedroom") == "off"
+
+
+async def test_storm_guard(hass: HomeAssistant, manager: ShabbotManager, freezer: FrozenDateTimeFactory) -> None:
+    manager.settings.update(storm_max_reverts=3, storm_window_min=10)
+    block, _ = _block_times(manager)
+    await _advance(hass, freezer, block.start + timedelta(minutes=5))
+    for _ in range(4):
+        await _user_toggle(hass, "bedroom", True)
+        await _advance(hass, freezer, timedelta(seconds=5))
+    assert manager.paused.get("input_boolean.bedroom") == "storm"
+    assert _state(hass, "bedroom") == "on"
+    assert any(e["kind"] == "storm" for e in manager.store.activity)
+
+
+async def test_restart_mid_shabbat_reconciles(hass: HomeAssistant, manager: ShabbotManager,
+                                              freezer: FrozenDateTimeFactory) -> None:
+    _, sunset = _block_times(manager)
+    freezer.move_to(sunset + timedelta(minutes=30))
+    await manager.async_reconcile("test restart")
+    await hass.async_block_till_done()
+    assert _state(hass, "chandelier") == "on"
+    assert _state(hass, "hotplate") == "on"
+    assert _state(hass, "bedroom") == "off"
+
+
+async def test_skip_meal_only_once(hass: HomeAssistant, manager: ShabbotManager,
+                                   freezer: FrozenDateTimeFactory) -> None:
+    await hass.services.async_call(DOMAIN, "skip_slot", {"slot": "2026-10-10/night"}, blocking=True)
+    await hass.async_block_till_done()
+    _, sunset = _block_times(manager)
+    await _advance(hass, freezer, sunset + timedelta(minutes=20))
+    assert _state(hass, "chandelier") == "off"
+    _, instances = manager.plan(datetime(2026, 10, 17).date(), datetime(2026, 10, 17).date())
+    nxt = next(i for i in instances if i.target.key == "2026-10-17/night")
+    assert nxt.routine and nxt.routine["id"] == "fri_standard"
+
+
+async def test_websocket_plan_and_routine_save(hass: HomeAssistant, manager: ShabbotManager, hass_ws_client) -> None:
+    client = await hass_ws_client(hass)
+    await client.send_json_auto_id({"type": "shabbot/plan", "start": "2026-10-01", "end": "2026-10-31"})
+    res = await client.receive_json()
+    assert res["success"]
+    keys = {i["key"] for i in res["result"]["instances"]}
+    assert "2026-10-10/night" in keys
+    await client.send_json_auto_id({"type": "shabbot/routine/save", "routine": {
+        "name": "Bad", "part": "night", "actions": [{"entity_id": "light.x", "state": "on",
+                                                      "start": "sunsett", "end": "midnight"}]}})
+    res = await client.receive_json()
+    assert not res["success"] and "Unknown time" in res["error"]["message"]
+    await client.send_json_auto_id({"type": "shabbot/preview", "expr": "sunset+18m", "part": "night"})
+    res = await client.receive_json()
+    assert res["result"]["time"].startswith("2026-10-09T18:4")

@@ -1,0 +1,61 @@
+# Local development instance of Home Assistant for ShabBOT (not for production).
+homeassistant:
+  name: ShabBOT Dev
+  latitude: 40.6501
+  longitude: -73.94958
+  elevation: 18
+  unit_system: us_customary
+  time_zone: America/New_York
+  country: US
+  currency: USD
+  auth_providers:
+    - type: trusted_networks
+      trusted_networks: [127.0.0.1/32, "::1/128"]
+      allow_bypass_login: true
+    - type: homeassistant
+
+http:
+  server_host: 127.0.0.1
+  server_port: 8133
+
+frontend:
+config:
+logger:
+  default: warning
+  logs:
+    custom_components.shabbot: debug
+
+input_boolean:
+  chandelier_power:
+    name: Chandelier (load)
+  hotplate_power:
+    name: Hot plate (load)
+  bedroom_power:
+    name: Bedroom light (load)
+  living_power:
+    name: Living room (load)
+
+template:
+  - light:
+      - name: Dining room chandelier
+        unique_id: dev_chandelier
+        state: "{{ is_state('input_boolean.chandelier_power', 'on') }}"
+        turn_on: { action: input_boolean.turn_on, target: { entity_id: input_boolean.chandelier_power } }
+        turn_off: { action: input_boolean.turn_off, target: { entity_id: input_boolean.chandelier_power } }
+      - name: Bedroom light
+        unique_id: dev_bedroom
+        state: "{{ is_state('input_boolean.bedroom_power', 'on') }}"
+        turn_on: { action: input_boolean.turn_on, target: { entity_id: input_boolean.bedroom_power } }
+        turn_off: { action: input_boolean.turn_off, target: { entity_id: input_boolean.bedroom_power } }
+      - name: Living room lights
+        unique_id: dev_living
+        state: "{{ is_state('input_boolean.living_power', 'on') }}"
+        turn_on: { action: input_boolean.turn_on, target: { entity_id: input_boolean.living_power } }
+        turn_off: { action: input_boolean.turn_off, target: { entity_id: input_boolean.living_power } }
+  - switch:
+      - name: Hot plate
+        unique_id: dev_hotplate
+        state: "{{ is_state('input_boolean.hotplate_power', 'on') }}"
+        turn_on: { action: input_boolean.turn_on, target: { entity_id: input_boolean.hotplate_power } }
+        turn_off: { action: input_boolean.turn_off, target: { entity_id: input_boolean.hotplate_power } }
+

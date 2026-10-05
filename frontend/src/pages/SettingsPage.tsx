@@ -1,0 +1,141 @@
+import { useRef, useState } from "react";
+import { useDraft } from "../useDraft";
+import { callWS, shallowEqual, useHassSelector } from "../hass";
+import { errorMessage, invalidateAll, useConfig } from "../api";
+import { Check, Field, Loading, SaveBar } from "../components/ui";
+import type { Settings } from "../types";
+
+export function SettingsPage() {
+  const { data } = useConfig();
+  const [draft, setDraft, dirty, reset] = useDraft<Settings>(data?.config.settings);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const fileRef = useRef<HTMLInputElement>(null);
+  const notifiers = useHassSelector((h) => Object.keys(h.services.notify ?? {}).sort(), shallowEqual);
+
+  if (!data || !draft) return <Loading />;
+  const set = <K extends keyof Settings>(k: K, v: Settings[K]) => setDraft({ ...draft, [k]: v });
+  const num = (k: keyof Settings) => (e: React.ChangeEvent<HTMLInputElement>) => set(k, (e.target.value === "" ? null : Number(e.target.value)) as never);
+
+  const save = async () => {
+    setSaving(true);
+    setError("");
+    try {
+      setDraft(await callWS<Settings>({ type: "shabbot/settings/save", settings: draft }));
+      invalidateAll();
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const exportConfig = async () => {
+    const out = await callWS<unknown>({ type: "shabbot/export" });
+    const blob = new Blob([JSON.stringify(out, null, 2)], { type: "application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `shabbot-export-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  };
+  const importConfig = async (file: File, replace: boolean) => {
+    setNotice("");
+    try {
+      await callWS({ type: "shabbot/import", data: JSON.parse(await file.text()), replace });
+      invalidateAll();
+      setNotice("Imported. Check device names: entity ids from another home may differ.");
+    } catch (e) {
+      setNotice(`Import failed: ${errorMessage(e)}`);
+    }
+  };
+  const loc = data.meta.location;
+
+  return (
+    <div className="sb-stack">
+      <div className="sb-card sb-card-pad sb-stack">
+        <h3 className="sb-section-title">Zmanim & minhagim</h3>
+        <div className="sb-grid-2">
+          <Field label="Candle lighting (minutes before sunset)">
+            <input className="sb-input" type="number" min={0} max={60} value={draft.candle_lighting_min} onChange={num("candle_lighting_min")} />
+          </Field>
+          <Field label="Havdalah">
+            <select className="sb-select" value={draft.havdalah_mode} onChange={(e) => set("havdalah_mode", e.target.value as Settings["havdalah_mode"])}>
+              <option value="degrees">Sun angle below horizon</option>
+              <option value="minutes">Fixed minutes after sunset</option>
+            </select>
+          </Field>
+          {draft.havdalah_mode === "degrees" ? (
+            <Field label="Degrees below horizon" hint="8.5° is the common default; 7.083° is earlier.">
+              <input className="sb-input" type="number" step={0.001} value={draft.havdalah_degrees} onChange={num("havdalah_degrees")} />
+            </Field>
+          ) : (
+            <Field label="Minutes after sunset" hint="e.g. 42, 50 or 72">
+              <input className="sb-input" type="number" value={draft.havdalah_minutes} onChange={num("havdalah_minutes")} />
+            </Field>
+          )}
+        </div>
+        <div className="sb-row" style={{ gap: 20 }}>
+          <Check checked={draft.israel} onChange={(v) => set("israel", v)}>Israel (one-day Yom Tov)</Check>
+          <Check checked={draft.use_elevation} onChange={(v) => set("use_elevation", v)}>Use elevation for sunrise/sunset</Check>
+        </div>
+        <div className="sb-grid-2">
+          <Field label="Latitude" hint={`Blank = Home Assistant's (${loc.latitude.toFixed(4)})`}>
+            <input className="sb-input" type="number" step={0.0001} value={draft.latitude ?? ""} onChange={num("latitude")} />
+          </Field>
+          <Field label="Longitude" hint={`Blank = Home Assistant's (${loc.longitude.toFixed(4)}) · ${loc.time_zone}`}>
+            <input className="sb-input" type="number" step={0.0001} value={draft.longitude ?? ""} onChange={num("longitude")} />
+          </Field>
+        </div>
+      </div>
+
+      <div className="sb-card sb-card-pad sb-stack">
+        <h3 className="sb-section-title">Behavior</h3>
+        <Check checked={draft.dry_run} onChange={(v) => set("dry_run", v)}>
+          Dry run: log what ShabBOT would do, but don't touch any devices
+        </Check>
+        <Check checked={draft.protection} onChange={(v) => set("protection", v)}>Device protection</Check>
+        <div className="sb-grid-2">
+          <Field label="Wait before reverting (seconds)" hint="Gives override gestures time to register.">
+            <input className="sb-input" type="number" min={0} max={60} value={draft.grace_seconds} onChange={num("grace_seconds")} />
+          </Field>
+          <Field label="Give up after this many reverts…">
+            <input className="sb-input" type="number" min={1} value={draft.storm_max_reverts} onChange={num("storm_max_reverts")} />
+          </Field>
+          <Field label="…within (minutes)">
+            <input className="sb-input" type="number" min={1} value={draft.storm_window_min} onChange={num("storm_window_min")} />
+          </Field>
+          <Field label="Notify" hint="Sends a notification on overrides and when ShabBOT gives up on a device.">
+            <select className="sb-select" value={draft.notify_service} onChange={(e) => set("notify_service", e.target.value)}>
+              <option value="">No notifications</option>
+              {notifiers.map((n) => <option key={n} value={`notify.${n}`}>notify.{n}</option>)}
+            </select>
+          </Field>
+        </div>
+        {draft.notify_service && (
+          <Check checked={draft.notify_overrides} onChange={(v) => set("notify_overrides", v)}>Also notify when an override starts</Check>
+        )}
+      </div>
+
+      <SaveBar dirty={dirty} saving={saving} error={error} onSave={save} onReset={reset} />
+
+      <div className="sb-card sb-card-pad sb-stack">
+        <h3 className="sb-section-title">Copy between homes</h3>
+        <p className="sb-hint">Export routines, rules, modes and device settings, then import them into ShabBOT in another home.</p>
+        <div className="sb-row">
+          <button className="sb-btn" onClick={exportConfig}>Export…</button>
+          <input ref={fileRef} type="file" accept="application/json" hidden
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) importConfig(f, confirm("Replace everything here with the file?\n\nOK = replace, Cancel = merge"));
+              e.target.value = "";
+            }} />
+          <button className="sb-btn" onClick={() => fileRef.current?.click()}>Import…</button>
+          {notice && <span className="sb-hint">{notice}</span>}
+        </div>
+      </div>
+      <p className="sb-hint">ShabBOT {data.meta.version}</p>
+    </div>
+  );
+}

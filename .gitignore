@@ -1,0 +1,12 @@
+.venv/
+.devha/*
+!.devha/configuration.yaml
+!.devha/custom_components/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+frontend/node_modules/
+*.zip
+.DS_Store
+custom_components/shabbot/frontend/

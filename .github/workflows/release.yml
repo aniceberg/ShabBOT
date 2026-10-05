@@ -1,0 +1,36 @@
+name: Release
+
+# Publishing a GitHub release (tag like v0.2.0) builds the panel and attaches shabbot.zip,
+# which HACS downloads (hacs.json: zip_release).
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  zip:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Build panel
+        working-directory: frontend
+        run: npm ci && npm run build
+      - name: Stamp version from tag
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          jq --arg v "$VERSION" '.version = $v' custom_components/shabbot/manifest.json > m.json
+          mv m.json custom_components/shabbot/manifest.json
+          sed -i "s/^VERSION: Final = \".*\"/VERSION: Final = \"$VERSION\"/" custom_components/shabbot/const.py
+      - name: Zip integration
+        working-directory: custom_components/shabbot
+        run: zip -r "$GITHUB_WORKSPACE/shabbot.zip" . -x "__pycache__/*" "*/__pycache__/*"
+      - uses: softprops/action-gh-release@v3
+        with:
+          files: shabbot.zip

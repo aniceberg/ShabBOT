@@ -1,0 +1,92 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Set up ShabBOT",
+        "description": "Zmanim are calculated for Home Assistant's location ({latitude}, {longitude}, {time_zone}). ShabBOT starts in dry-run mode: it logs what it would do without touching devices until you turn dry-run off.",
+        "data": {
+          "candle_lighting_min": "Candle lighting (minutes before sunset)",
+          "havdalah_mode": "Havdalah calculation",
+          "havdalah_degrees": "Havdalah: sun degrees below horizon",
+          "havdalah_minutes": "Havdalah: minutes after sunset",
+          "israel": "Israel (one-day Yom Tov)"
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "ShabBOT is already set up.",
+      "single_instance_allowed": "ShabBOT is already set up."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "ShabBOT minhagim",
+        "data": {
+          "candle_lighting_min": "Candle lighting (minutes before sunset)",
+          "havdalah_mode": "Havdalah calculation",
+          "havdalah_degrees": "Havdalah: sun degrees below horizon",
+          "havdalah_minutes": "Havdalah: minutes after sunset",
+          "israel": "Israel (one-day Yom Tov)"
+        }
+      }
+    }
+  },
+  "selector": {
+    "havdalah_mode": {
+      "options": {
+        "degrees": "Sun angle (tzeit hakochavim)",
+        "minutes": "Fixed minutes after sunset"
+      }
+    }
+  },
+  "entity": {
+    "binary_sensor": {"issur_melacha": {"name": "Issur Melacha"}},
+    "calendar": {
+      "issur_melacha_calendar": {"name": "Shabbat & Yom Tov"},
+      "routines_calendar": {"name": "Routines"}
+    },
+    "select": {"mode": {"name": "Mode"}},
+    "sensor": {
+      "next_candle_lighting": {"name": "Next candle lighting"},
+      "next_havdalah": {"name": "Next havdalah"},
+      "active_overrides": {"name": "Active overrides"}
+    },
+    "switch": {
+      "protection": {"name": "Device protection"},
+      "dry_run": {"name": "Dry run"}
+    }
+  },
+  "services": {
+    "start_override": {
+      "name": "Start override",
+      "description": "Pause device protection for the given devices.",
+      "fields": {
+        "entity_id": {"name": "Devices", "description": "Devices to stop protecting."},
+        "minutes": {"name": "Minutes", "description": "How long. Defaults to each device's setting."}
+      }
+    },
+    "end_override": {
+      "name": "End override",
+      "description": "Resume device protection now.",
+      "fields": {"entity_id": {"name": "Devices", "description": "Devices to protect again."}}
+    },
+    "set_slot_routine": {
+      "name": "Choose routine for a meal",
+      "description": "Use a different routine for one night/day only. Leave the routine empty to go back to the default.",
+      "fields": {
+        "slot": {"name": "Slot", "description": "Date of the Shabbat/Yom Tov day and part, e.g. 2026-10-10/night."},
+        "routine_id": {"name": "Routine", "description": "Routine id or name."}
+      }
+    },
+    "skip_slot": {
+      "name": "Skip a meal",
+      "description": "Skip (or un-skip) the routine for one night/day only.",
+      "fields": {
+        "slot": {"name": "Slot", "description": "e.g. 2026-10-10/day"},
+        "skip": {"name": "Skip", "description": "Turn off to restore the routine."}
+      }
+    },
+    "reconcile": {"name": "Reconcile now", "description": "Set every managed device to its scheduled state now."}
+  }
+}

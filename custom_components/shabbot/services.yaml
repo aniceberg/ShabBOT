@@ -1,0 +1,43 @@
+start_override:
+  fields:
+    entity_id:
+      required: true
+      selector:
+        entity:
+          multiple: true
+    minutes:
+      selector:
+        number:
+          min: 1
+          max: 1440
+          unit_of_measurement: min
+end_override:
+  fields:
+    entity_id:
+      required: true
+      selector:
+        entity:
+          multiple: true
+set_slot_routine:
+  fields:
+    slot:
+      required: true
+      example: "2026-10-10/night"
+      selector:
+        text:
+    routine_id:
+      example: "fri_hosting"
+      selector:
+        text:
+skip_slot:
+  fields:
+    slot:
+      required: true
+      example: "2026-10-10/day"
+      selector:
+        text:
+    skip:
+      default: true
+      selector:
+        boolean:
+reconcile:
