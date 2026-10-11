@@ -730,7 +730,7 @@ button.sb-list-item:hover {
 
 .sb-action {
   display: grid;
-  grid-template-columns: minmax(140px, 1.4fr) 84px minmax(120px, 1fr) minmax(120px, 1fr) 110px 34px;
+  grid-template-columns: 22px minmax(150px, 1.4fr) 84px minmax(120px, 1fr) minmax(120px, 1fr) 110px 34px;
   gap: 8px;
   align-items: start;
   padding: 10px 0;
@@ -781,7 +781,7 @@ button.sb-list-item:hover {
 
 .sb-rule {
   display: grid;
-  grid-template-columns: 20px minmax(110px, 1.3fr) minmax(96px, 0.9fr) repeat(4, minmax(78px, 1fr)) minmax(120px, 1.3fr) 100px;
+  grid-template-columns: 46px minmax(110px, 1.3fr) minmax(96px, 0.9fr) repeat(4, minmax(78px, 1fr)) minmax(120px, 1.3fr) 40px;
   gap: 8px;
   align-items: center;
   padding: 8px 0;
@@ -811,6 +811,55 @@ button.sb-list-item:hover {
   margin-bottom: 2px;
 }
 
+/* ---------- drag to reorder ---------- */
+
+.sb-grip {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--muted);
+  cursor: grab;
+  touch-action: none; /* let touch drags move the row instead of scrolling the page */
+}
+
+.sb-grip:hover,
+.sb-grip:focus-visible {
+  color: var(--text);
+  background: var(--surface-2);
+  outline: none;
+}
+
+[data-dragging] {
+  position: relative;
+  z-index: 2;
+  background: var(--surface);
+  box-shadow: 0 6px 18px rgba(16, 24, 40, 0.18);
+  border-radius: 8px;
+}
+
+[data-dragging] .sb-grip {
+  cursor: grabbing;
+  color: var(--accent);
+}
+
+.sb-chip-device {
+  font-size: 12px;
+  padding: 2px 9px;
+  color: var(--text);
+}
+
+.sb-chip-device.sb-invalid {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
 /* Editor rows adapt to the card they're in (the HA sidebar and drawers change the space available). */
 .sb-editor {
   container-type: inline-size;
@@ -833,6 +882,10 @@ button.sb-list-item:hover {
   .sb-action > :last-child.sb-btn,
   .sb-action > .sb-btn-danger {
     justify-self: end;
+  }
+
+  .sb-action > .sb-grip {
+    grid-column: 1 / -1;
   }
 }
 

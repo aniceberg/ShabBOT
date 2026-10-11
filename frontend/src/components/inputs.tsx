@@ -3,11 +3,8 @@ import { callWS, CONTROLLABLE, shallowEqual, useHassSelector } from "../hass";
 import { ANCHOR_CHIP, ANCHOR_LABEL, dayTime, describeExpr } from "../format";
 import type { Part } from "../types";
 
-/** Entity picker over controllable entities, with friendly names. */
-export function EntityPicker({ value, onChange, domains = CONTROLLABLE, placeholder = "Choose a device…" }: {
-  value: string; onChange: (v: string) => void; domains?: string[]; placeholder?: string;
-}) {
-  const listId = useId();
+/** Controllable entities as {entity_id: friendly name}, re-rendering only when that list changes. */
+function useEntityOptions(domains: string[]): { options: Record<string, string>; sorted: [string, string][] } {
   const options = useHassSelector(
     (h) =>
       Object.fromEntries(
@@ -18,6 +15,15 @@ export function EntityPicker({ value, onChange, domains = CONTROLLABLE, placehol
     shallowEqual,
   );
   const sorted = useMemo(() => Object.entries(options).sort((a, b) => a[1].localeCompare(b[1])), [options]);
+  return { options, sorted };
+}
+
+/** Entity picker over controllable entities, with friendly names. */
+export function EntityPicker({ value, onChange, domains = CONTROLLABLE, placeholder = "Choose a device…" }: {
+  value: string; onChange: (v: string) => void; domains?: string[]; placeholder?: string;
+}) {
+  const listId = useId();
+  const { options, sorted } = useEntityOptions(domains);
   const known = value in options;
   return (
     <div className="sb-stack" style={{ gap: 2 }}>
@@ -27,6 +33,47 @@ export function EntityPicker({ value, onChange, domains = CONTROLLABLE, placehol
         {sorted.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
       </datalist>
       <small className="sb-preview">{known ? options[value] : value ? "Not found in Home Assistant" : ""}</small>
+    </div>
+  );
+}
+
+/** Several devices: removable chips, plus a box that adds a device as soon as a known one is chosen. */
+export function EntityMultiPicker({ value, onChange, domains = CONTROLLABLE, exclude = [] }: {
+  value: string[]; onChange: (v: string[]) => void; domains?: string[]; exclude?: string[];
+}) {
+  const listId = useId();
+  const { options, sorted } = useEntityOptions(domains);
+  const [typed, setTyped] = useState("");
+  const add = (text: string) => {
+    const id = text.trim();
+    if (id in options && !value.includes(id) && !exclude.includes(id)) {
+      onChange([...value, id]);
+      setTyped("");
+    } else {
+      setTyped(text);
+    }
+  };
+  const unknown = typed.trim() !== "" && !(typed.trim() in options);
+  return (
+    <div className="sb-stack" style={{ gap: 4 }}>
+      {value.length > 0 && (
+        <div className="sb-chips" style={{ marginTop: 0 }}>
+          {value.map((id) => (
+            <button key={id} type="button" className={`sb-chip sb-chip-device ${id in options ? "" : "sb-invalid"}`}
+              title={`${id} (click to remove)`} onClick={() => onChange(value.filter((x) => x !== id))}>
+              {options[id] ?? id} <span aria-hidden="true">×</span>
+            </button>
+          ))}
+        </div>
+      )}
+      <input className={`sb-input ${unknown ? "sb-invalid" : ""}`} list={listId} value={typed}
+        placeholder={value.length ? "Add another device…" : "Choose a device…"} onChange={(e) => add(e.target.value)} />
+      <datalist id={listId}>
+        {sorted.filter(([id]) => !value.includes(id) && !exclude.includes(id)).map(([id, name]) => (
+          <option key={id} value={id}>{name}</option>
+        ))}
+      </datalist>
+      {unknown && <small className="sb-preview">Not found in Home Assistant</small>}
     </div>
   );
 }

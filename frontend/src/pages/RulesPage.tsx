@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { useDraft } from "../useDraft";
+import { DragHandle, tempId, useReorder } from "../components/reorder";
 import { callWS } from "../hass";
 import { errorMessage, invalidateAll, useConfig, usePlan } from "../api";
 import { Icon, Loading, SaveBar } from "../components/ui";
@@ -12,6 +13,7 @@ const PARTS: Part[] = ["night", "day", "block"];
 export function RulesPage() {
   const { data } = useConfig();
   const [rules, setRules, dirty, reset] = useDraft<Rule[]>(data?.config.rules);
+  const reorder = useReorder(rules ?? [], setRules);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const today = new Date();
@@ -23,12 +25,6 @@ export function RulesPage() {
   const set = (i: number, patch: Partial<Rule>) => setRules(rules.map((r, j) => (j === i ? { ...r, ...patch } : r)));
   const setMatch = (i: number, key: keyof Rule["match"], value: string) =>
     set(i, { match: { ...rules[i].match, [key]: value === "" ? null : key === "day_in_block" || key === "weekday" ? Number(value) : value } });
-  const move = (i: number, d: number) => {
-    const next = [...rules];
-    const [r] = next.splice(i, 1);
-    next.splice(i + d, 0, r);
-    setRules(next);
-  };
   const save = async () => {
     setSaving(true);
     setError("");
@@ -52,7 +48,7 @@ export function RulesPage() {
           <h3 className="sb-section-title">Default rules</h3>
           <p className="sb-hint">
             For each meal, ShabBOT uses the most specific matching rule (the one with the most conditions). Ties go to the
-            rule higher in the list. A one-time choice on the calendar, or an active Summer/Vacation mode, takes priority over these.
+            rule higher in the list; drag the ⋮⋮ handle to reorder. A one-time choice on the calendar, or an active Summer/Vacation mode, takes priority over these.
           </p>
         </div>
         <div className="sb-scroll-x">
@@ -60,8 +56,11 @@ export function RulesPage() {
             <span /><span>Name</span><span>Meal</span><span>Kind of day</span><span>Holiday</span><span>Day #</span><span>Weekday</span><span>Use routine</span><span />
           </div>
           {rules.map((r, i) => (
-            <div key={r.id || i} className="sb-rule" style={{ opacity: r.enabled ? 1 : 0.5 }}>
-              <input type="checkbox" checked={r.enabled} title="Enabled" onChange={(e) => set(i, { enabled: e.target.checked })} />
+            <div key={r.id || i} className="sb-rule" {...reorder.row(i)} style={{ opacity: r.enabled ? 1 : 0.5 }}>
+              <div className="sb-row" style={{ gap: 4, flexWrap: "nowrap" }}>
+                <DragHandle {...reorder.handle(i)} />
+                <input type="checkbox" checked={r.enabled} title="Enabled" onChange={(e) => set(i, { enabled: e.target.checked })} />
+              </div>
               <div><span className="sb-cell-label">Name</span><input className="sb-input" value={r.name} onChange={(e) => set(i, { name: e.target.value })} /></div>
               <div><span className="sb-cell-label">Meal</span><select className="sb-select" value={r.part} onChange={(e) => set(i, { part: e.target.value as Part, routine_id: null })}>
                 {PARTS.map((p) => <option key={p} value={p}>{PART_LABEL[p]}</option>)}
@@ -85,15 +84,13 @@ export function RulesPage() {
               <div><span className="sb-cell-label">Use routine</span><RoutineSelect value={r.routine_id} onChange={(v) => set(i, { routine_id: v })} routines={routines} part={r.part}
                 specials={[{ value: null, label: "Nothing" }]} /></div>
               <div className="sb-row" style={{ gap: 0, flexWrap: "nowrap" }}>
-                <button className="sb-btn sb-btn-ghost sb-icon-btn" disabled={i === 0} onClick={() => move(i, -1)} aria-label="Move up"><Icon name="up" size={16} /></button>
-                <button className="sb-btn sb-btn-ghost sb-icon-btn" disabled={i === rules.length - 1} onClick={() => move(i, 1)} aria-label="Move down"><Icon name="down" size={16} /></button>
                 <button className="sb-btn sb-btn-ghost sb-icon-btn sb-btn-danger" onClick={() => setRules(rules.filter((_, j) => j !== i))} aria-label="Delete"><Icon name="trash" size={16} /></button>
               </div>
             </div>
           ))}
         </div>
         <div className="sb-row">
-          <button className="sb-btn" onClick={() => setRules([...rules, { id: "", name: "New rule", part: "night", enabled: true, match: {}, routine_id: null }])}>
+          <button className="sb-btn" onClick={() => setRules([...rules, { id: tempId(), name: "New rule", part: "night", enabled: true, match: {}, routine_id: null }])}>
             <Icon name="plus" size={16} /> Add rule
           </button>
         </div>

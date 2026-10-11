@@ -276,3 +276,16 @@ def test_check_actions_respects_repeat_and_flags_outside_block() -> None:
     assert daily.total > len(blocks) and daily.before_start == 0 and daily.after_end == 0
     assert nightly_wrong.after_end > 0
     assert early.before_start == early.total
+
+
+def test_one_row_can_control_several_devices() -> None:
+    row = {"id": "multi", "entity_ids": ["light.chandelier", "light.living_room", "light.chandelier"],
+           "state": "on", "start": "sunset", "end": "11pm"}
+    cfg = {**CONFIG, "routines": {**CONFIG["routines"], "std_night": {**CONFIG["routines"]["std_night"],
+                                                                         "actions": [row]}}}
+    _, instances = planner.plan_range(date(2026, 10, 10), date(2026, 10, 10), BROOKLYN, MINHAG, cfg)
+    actions = next(i for i in instances if i.target.key == "2026-10-10/night").actions
+    assert [a.entity_id for a in actions] == ["light.chandelier", "light.living_room"]  # de-duplicated
+    assert len({(a.start, a.end) for a in actions}) == 1
+    # Rows saved before multi-device support still work.
+    assert planner.action_entities({"entity_id": "light.x"}) == ["light.x"]

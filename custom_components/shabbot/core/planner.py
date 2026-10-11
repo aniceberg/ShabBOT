@@ -6,7 +6,7 @@ and to call from the websocket API for arbitrary calendar ranges.
 Config shapes (see store.py for defaults):
 
 routine   {id, name, part: night|day|block, color, actions: [action]}
-action    {id, entity_id, state: on|off, brightness?: 1-100, temperature?: float,
+action    {id, entity_ids (or legacy entity_id), state: on|off, brightness?: 1-100, temperature?: float,
            start: expr, end: expr, end_state?: on|off|leave}
 rule      {id, name, part, match: {day_type?, holiday_group?, holiday?, day_in_block?, weekday?}, routine_id|None}
 mode      {id, name, enabled, start: date, end: date|None, night|day|block: routine_id|"none"|None, protection: bool}
@@ -18,6 +18,7 @@ from __future__ import annotations
 from bisect import bisect_right
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
+from itertools import product
 from typing import Any
 
 from . import astro, jcal, timeexpr
@@ -82,6 +83,12 @@ def evaluate_window(action: dict[str, Any], target: Target, tz) -> tuple[datetim
     if start < end <= start + timedelta(hours=24):
         return start, end, True
     raise timeexpr.ExprError("End is not after start")
+
+
+def action_entities(action: dict[str, Any]) -> list[str]:
+    """Devices a routine row controls; rows saved before multi-device support have a single entity_id."""
+    entities = action.get("entity_ids") or ([action["entity_id"]] if action.get("entity_id") else [])
+    return list(dict.fromkeys(entities))
 
 
 ONCE, EVERY_NIGHT, EVERY_DAY = "once", "night", "day"
@@ -282,9 +289,9 @@ def plan_instance(target: Target, config: dict[str, Any], tz) -> Instance:
     for action in routine.get("actions", []):
         attrs = {k: action[k] for k in ("brightness", "temperature") if action.get(k) is not None}
         repeated = repeat_of(action, target) != ONCE
-        for occ in occurrence_targets(action, target):
+        for entity_id, occ in product(action_entities(action), occurrence_targets(action, target)):
             pa = PlannedAction(
-                action_id=action["id"], entity_id=action["entity_id"], state=action.get("state", "on"), attrs=attrs,
+                action_id=action["id"], entity_id=entity_id, state=action.get("state", "on"), attrs=attrs,
                 start=None, end=None,
                 end_state=action.get("end_state") or default_end_state(action.get("state", "on")),
                 disabled=action["id"] in disabled,

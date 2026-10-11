@@ -28,7 +28,7 @@ Works on every Home Assistant install type (OS, Supervised, Container, Core). In
 **Block**: one continuous Shabbat/Yom Tov, from candle lighting to havdalah (1–3 days).
 **Slot**: each day in a block has a *night* meal (the evening before) and a *day* meal. Slot keys look like `2026-10-10/night`.
 
-**Routine**: runs for a night, a day, or the whole block ("baseline"). Each row keeps one device on (or off) between two times. When meal routines and the baseline overlap, the meal wins.
+**Routine**: runs for a night, a day, or the whole block ("baseline"). Each row keeps one or more devices on (or off) between two times (add several devices to a row to give them the same schedule). Drag the ⋮⋮ handle to reorder rows, or default rules (where order breaks ties). When meal routines and the baseline overlap, the meal wins.
 
 **Baseline rows** apply to every Shabbat/Yom Tov whatever the meal plans, and each can **repeat**:
 - *Once* (default): times count from the first evening, so `7:00am` means the next morning and `3:00pm` means that Friday afternoon.

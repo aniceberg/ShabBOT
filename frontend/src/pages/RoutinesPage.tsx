@@ -2,9 +2,10 @@ import { useEffect, useMemo, useState } from "react";
 import { callWS } from "../hass";
 import { errorMessage, invalidateAll, useConfig } from "../api";
 import { Field, Icon, Loading, SaveBar } from "../components/ui";
-import { EntityPicker, ExprInput } from "../components/inputs";
+import { EntityMultiPicker, ExprInput } from "../components/inputs";
+import { DragHandle, tempId, useReorder } from "../components/reorder";
 import { dateShort, PART_LABEL, time } from "../format";
-import type { Action, Part, Routine, RowCheck } from "../types";
+import { entitiesOf, type Action, type Part, type Routine, type RowCheck } from "../types";
 
 const PARTS: Part[] = ["night", "day", "block"];
 const PART_HELP: Record<Part, string> = {
@@ -15,12 +16,18 @@ const PART_HELP: Record<Part, string> = {
 const COLORS = ["#2563eb", "#7c3aed", "#16a34a", "#0d9488", "#ea580c", "#db2777", "#64748b", "#94a3b8"];
 
 const blankAction = (part: Part): Action => ({
-  id: "",
-  entity_id: "",
+  id: tempId(),
+  entity_ids: [],
   state: part === "block" ? "off" : "on",
   start: part === "block" ? "candle_lighting" : part === "night" ? "sunset" : "11:30am",
   end: part === "block" ? "havdalah" : part === "night" ? "midnight" : "3pm",
   end_state: null,
+});
+
+/** Editor copy of a routine: every row lists its devices in `entity_ids`. */
+const normalize = (r: Routine): Routine => ({
+  ...structuredClone(r),
+  actions: r.actions.map(({ entity_id: _legacy, ...a }) => ({ ...structuredClone(a), entity_ids: entitiesOf({ ...a, entity_id: _legacy }) })),
 });
 
 export function RoutinesPage() {
@@ -32,6 +39,7 @@ export function RoutinesPage() {
 
   const routines = useMemo(() => Object.values(data?.config.routines ?? {}), [data]);
   const checks = useRowChecks(draft);
+  const reorder = useReorder(draft?.actions ?? [], (actions) => setDraft((d) => d && { ...d, actions }));
   useEffect(() => {
     if (!data) return;
     if (selected === null && routines.length) setSelected(routines[0].id);
@@ -39,14 +47,15 @@ export function RoutinesPage() {
   // Load the draft only when the selection changes, so background refreshes never wipe unsaved edits.
   useEffect(() => {
     const routine = selected ? data?.config.routines[selected] : undefined;
-    if (routine) setDraft(structuredClone(routine));
+    if (routine) setDraft(normalize(routine));
     setError("");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected, !!data]);
 
   if (!data) return <Loading />;
   const original = selected ? data.config.routines[selected] : undefined;
-  const dirty = !!draft && JSON.stringify(draft) !== JSON.stringify(original);
+  const dirty = !!draft && JSON.stringify(draft) !== JSON.stringify(original && normalize(original));
+  const missingDevice = !!draft && draft.actions.some((a) => entitiesOf(a).length === 0);
   const usage = (id: string) => {
     const rules = data.config.rules.filter((r) => r.routine_id === id).map((r) => r.name);
     const modes = data.config.modes.filter((m) => [m.night, m.day, m.block].includes(id)).map((m) => m.name);
@@ -63,7 +72,7 @@ export function RoutinesPage() {
         routine: { ...draft, id: draft.id || undefined, actions: draft.actions.map((a) => ({ ...a, id: a.id || undefined })) },
       });
       invalidateAll();
-      setDraft(saved);
+      setDraft(normalize(saved));
       setSelected(saved.id);
     } catch (e) {
       setError(errorMessage(e));
@@ -139,25 +148,27 @@ export function RoutinesPage() {
 
           <div>
             <h3 className="sb-section-title">Devices</h3>
-            <p className="sb-hint">Each row keeps one device on (or off) between two times. Times can be zmanim with offsets (sunset+18m), clock times (11:45pm), or min()/max() of both.</p>
+            <p className="sb-hint">Each row keeps one or more devices on (or off) between two times; drag the ⋮⋮ handle to reorder rows. Times can be zmanim with offsets (sunset+18m), clock times (11:45pm), or min()/max() of both.</p>
           </div>
           <div className="sb-scroll-x">
             <div className="sb-action sb-action-head">
-              <span>Device</span><span>State</span><span>From</span><span>Until</span><span>Afterwards</span><span />
+              <span /><span>Devices</span><span>State</span><span>From</span><span>Until</span><span>Afterwards</span><span />
             </div>
             {draft.actions.map((a, i) => (
-              <div key={a.id || i} className="sb-action">
-                <div><span className="sb-cell-label">Device</span><EntityPicker value={a.entity_id} onChange={(v) => setAction(i, { entity_id: v })} /></div>
+              <div key={a.id || i} className="sb-action" {...reorder.row(i)}>
+                <DragHandle {...reorder.handle(i)} />
+                <div><span className="sb-cell-label">Devices</span>
+                  <EntityMultiPicker value={entitiesOf(a)} onChange={(v) => setAction(i, { entity_ids: v })} /></div>
                 <div className="sb-stack" style={{ gap: 4 }}>
                   <span className="sb-cell-label">State</span>
                   <select className="sb-select" value={a.state} onChange={(e) => setAction(i, { state: e.target.value as "on" | "off" })}>
                     <option value="on">On</option><option value="off">Off</option>
                   </select>
-                  {a.state === "on" && a.entity_id.startsWith("light.") && (
+                  {a.state === "on" && entitiesOf(a).some((e) => e.startsWith("light.")) && (
                     <input className="sb-input" type="number" min={1} max={100} placeholder="Bright %"
                       value={a.brightness ?? ""} onChange={(e) => setAction(i, { brightness: e.target.value ? Number(e.target.value) : null })} />
                   )}
-                  {a.state === "on" && a.entity_id.startsWith("climate.") && (
+                  {a.state === "on" && entitiesOf(a).some((e) => e.startsWith("climate.")) && (
                     <input className="sb-input" type="number" step={0.5} placeholder="Temp"
                       value={a.temperature ?? ""} onChange={(e) => setAction(i, { temperature: e.target.value ? Number(e.target.value) : null })} />
                   )}
@@ -197,9 +208,10 @@ export function RoutinesPage() {
             <span className="sb-spacer" />
             {draft.id && <button className="sb-btn sb-btn-danger" onClick={remove}>Delete routine</button>}
           </div>
-          <SaveBar dirty={(dirty || !draft.id) && !checks.some((c) => c?.always_invalid)} saving={saving}
-            error={error || (checks.some((c) => c?.always_invalid) ? "Fix the rows whose times can't work." : "")} onSave={save}
-            onReset={original ? () => setDraft(structuredClone(original)) : undefined} />
+          <SaveBar dirty={dirty || !draft.id} blocked={checks.some((c) => c?.always_invalid) || missingDevice} saving={saving}
+            error={error || (missingDevice ? "Choose at least one device for each row."
+              : checks.some((c) => c?.always_invalid) ? "Fix the rows whose times can't work." : "")} onSave={save}
+            onReset={original ? () => setDraft(normalize(original)) : undefined} />
         </div>
       ) : (
         <div className="sb-card sb-empty">Choose a routine, or create one.</div>

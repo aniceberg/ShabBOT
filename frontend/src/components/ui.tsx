@@ -103,15 +103,17 @@ export function Drawer({ open, onClose, title, subtitle, crumbs, children, foote
   );
 }
 
-export function SaveBar({ dirty, saving, error, onSave, onReset, label = "Save" }: {
+export function SaveBar({ dirty, saving, error, onSave, onReset, label = "Save", blocked = false }: {
   dirty: boolean; saving: boolean; error?: string; onSave: () => void; onReset?: () => void; label?: string;
+  /** Unsaved changes that can't be saved yet (e.g. a row without a device); Discard still works. */
+  blocked?: boolean;
 }) {
   return (
     <div className="sb-row">
       {error && <span className="sb-error">{error}</span>}
       <span className="sb-spacer" />
       {onReset && <button className="sb-btn" disabled={!dirty || saving} onClick={onReset}>Discard</button>}
-      <button className="sb-btn sb-btn-primary" disabled={!dirty || saving} onClick={onSave}>
+      <button className="sb-btn sb-btn-primary" disabled={!dirty || saving || blocked} onClick={onSave}>
         {saving ? "Saving…" : label}
       </button>
     </div>

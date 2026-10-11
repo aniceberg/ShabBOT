@@ -45,9 +45,20 @@ def _expr(value: Any) -> str:
     return value
 
 
-ACTION_SCHEMA = vol.Schema({
+def _entities(action: dict) -> dict:
+    """Store a row's devices as a de-duplicated `entity_ids` list (accepts the older single `entity_id`)."""
+    entities = planner.action_entities(action)
+    if not entities:
+        raise vol.Invalid("Choose at least one device for each row")
+    action = {k: v for k, v in action.items() if k != "entity_id"}
+    action["entity_ids"] = entities
+    return action
+
+
+ACTION_SCHEMA = vol.All(vol.Schema({
     vol.Optional("id"): str,
-    vol.Required("entity_id"): str,
+    vol.Optional("entity_id"): str,
+    vol.Optional("entity_ids"): [str],
     vol.Required("state"): vol.In(STATES),
     vol.Optional("brightness"): vol.Any(None, vol.All(vol.Coerce(int), vol.Range(min=1, max=100))),
     vol.Optional("temperature"): vol.Any(None, vol.Coerce(float)),
@@ -56,7 +67,7 @@ ACTION_SCHEMA = vol.Schema({
     vol.Optional("end_state"): vol.Any(None, vol.In(END_STATES)),
     vol.Optional("label"): vol.Any(None, str),
     vol.Optional("repeat"): vol.Any(None, vol.In(planner.REPEATS)),  # baseline rows only
-})
+}), _entities)
 ROUTINE_SCHEMA = vol.Schema({
     vol.Optional("id"): vol.Any(None, str),
     vol.Required("name"): vol.All(str, vol.Length(min=1)),
@@ -313,7 +324,7 @@ async def ws_routine_save(hass, connection, msg) -> None:
             action.pop("repeat", None)  # only baseline rows repeat; "once" is the default
     for check in _check_routine(m, routine["part"], routine["actions"]):
         if check.always_invalid:
-            entity = routine["actions"][check.index]["entity_id"]
+            entity = ", ".join(routine["actions"][check.index]["entity_ids"])
             raise vol.Invalid(f"Row {check.index + 1} ({entity}): the end time is never after the start time")
     routine["id"] = routine.get("id") or new_id()
     for action in routine["actions"]:

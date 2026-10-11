@@ -5,7 +5,9 @@ export type OnOff = "on" | "off";
 
 export interface Action {
   id: string;
-  entity_id: string;
+  /** Devices this row controls. Rows saved before multi-device support have `entity_id` instead. */
+  entity_ids?: string[];
+  entity_id?: string;
   state: OnOff;
   brightness?: number | null;
   temperature?: number | null;
@@ -16,6 +18,9 @@ export interface Action {
   /** Baseline rows only: run once, every night, or every day of the Shabbat/Yom Tov. */
   repeat?: "once" | "night" | "day" | null;
 }
+
+export const entitiesOf = (a: Pick<Action, "entity_ids" | "entity_id">): string[] =>
+  a.entity_ids ?? (a.entity_id ? [a.entity_id] : []);
 
 export interface Routine {
   id: string;

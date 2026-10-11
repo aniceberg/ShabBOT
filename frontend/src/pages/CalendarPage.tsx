@@ -289,7 +289,7 @@ function InstanceDetail({ inst, config, onDevice }: { inst: Instance; config: Co
           <DeviceTimeline actions={inst.actions} color={inst.color ?? "#2f5bd3"} anchors={inst.slot?.anchors} onEntityClick={onDevice} />
           <div className="sb-list">
             {inst.actions.map((a) => (
-              <div key={`${a.action_id}-${a.occurrence_key ?? ""}`} className="sb-list-item">
+              <div key={`${a.action_id}-${a.entity_id}-${a.occurrence_key ?? ""}`} className="sb-list-item">
                 <input type="checkbox" checked={!a.disabled} title="Run this time"
                   onChange={(e) => toggleAction(a.action_id, e.target.checked)} />
                 <div className="sb-grow">

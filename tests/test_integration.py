@@ -313,3 +313,20 @@ async def test_every_day_baseline_row_runs_each_morning(hass: HomeAssistant, man
         assert _state(hass, "hotplate") == "on", day
         await _advance(hass, freezer, datetime(2027, 4, day, 10, 0, 1, tzinfo=TZ))
         assert _state(hass, "hotplate") == "off", day
+
+
+async def test_routine_rows_store_device_lists(hass: HomeAssistant, manager: ShabbotManager, hass_ws_client) -> None:
+    client = await hass_ws_client(hass)
+    routine = {**manager.config["routines"]["fri_standard"], "actions": [
+        {"entity_id": "input_boolean.chandelier", "state": "on", "start": "sunset", "end": "11pm"},
+        {"entity_ids": ["input_boolean.hotplate", "input_boolean.bedroom"], "state": "on",
+         "start": "sunset", "end": "sunset+2h"}]}
+    await client.send_json_auto_id({"type": "shabbot/routine/save", "routine": routine})
+    res = await client.receive_json()
+    assert [a["entity_ids"] for a in res["result"]["actions"]] == [
+        ["input_boolean.chandelier"], ["input_boolean.hotplate", "input_boolean.bedroom"]]
+    assert all("entity_id" not in a for a in res["result"]["actions"])
+    await client.send_json_auto_id({"type": "shabbot/routine/save", "routine": {
+        **routine, "actions": [{"entity_ids": [], "state": "on", "start": "sunset", "end": "11pm"}]}})
+    res = await client.receive_json()
+    assert not res["success"] and "at least one device" in res["error"]["message"]

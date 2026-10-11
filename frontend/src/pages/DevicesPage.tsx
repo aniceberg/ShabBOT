@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { callWS, friendlyName, getHass } from "../hass";
 import { errorMessage, invalidateAll, useConfig, useStatus } from "../api";
 import { Check, Drawer, Field, Icon, Loading, SaveBar } from "../components/ui";
-import { EntityPicker } from "../components/inputs";
+import { EntityMultiPicker, EntityPicker } from "../components/inputs";
 import { dayTime, time } from "../format";
 import type { DeviceConfig, EntityStatus, LearnedEvent, Matcher } from "../types";
 
@@ -210,29 +210,10 @@ function DeviceDrawer({ entityId, row, cfg, onClose }: {
           </Field>
         </div>
         <Field label="Also override these devices (same room)">
-          <GroupEditor value={draft.override_group} onChange={(g) => setDraft({ ...draft, override_group: g })} exclude={entityId} />
+          <EntityMultiPicker value={draft.override_group} onChange={(g) => setDraft({ ...draft, override_group: g })} exclude={[entityId]} />
         </Field>
       </div>
     </Drawer>
-  );
-}
-
-function GroupEditor({ value, onChange, exclude }: { value: string[]; onChange: (v: string[]) => void; exclude: string }) {
-  const [adding, setAdding] = useState("");
-  return (
-    <div className="sb-stack" style={{ gap: 6 }}>
-      <div className="sb-chips">
-        {value.map((e) => (
-          <button key={e} className="sb-chip" onClick={() => onChange(value.filter((x) => x !== e))} title="Remove">{friendlyName(e)} ×</button>
-        ))}
-        {value.length === 0 && <span className="sb-hint">None</span>}
-      </div>
-      <div className="sb-row" style={{ alignItems: "flex-start" }}>
-        <div style={{ flex: 1 }}><EntityPicker value={adding} onChange={setAdding} /></div>
-        <button className="sb-btn sb-btn-sm" disabled={!adding || adding === exclude || value.includes(adding)}
-          onClick={() => { onChange([...value, adding]); setAdding(""); }}>Add</button>
-      </div>
-    </div>
   );
 }
 
