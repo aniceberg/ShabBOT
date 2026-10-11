@@ -288,3 +288,28 @@ async def test_early_shabbat_setting_moves_candle_lighting(hass: HomeAssistant, 
     assert block["start"].startswith("2027-06-25T19:00") and block["normal_start"].startswith("2027-06-25T20:1")
     await client.send_json_auto_id({"type": "shabbot/settings/save", "settings": {"early_shabbat_time": "7pm"}})
     assert not (await client.receive_json())["success"]
+
+
+async def test_every_day_baseline_row_runs_each_morning(hass: HomeAssistant, manager: ShabbotManager,
+                                                        freezer: FrozenDateTimeFactory, hass_ws_client) -> None:
+    client = await hass_ws_client(hass)
+    baseline = {**manager.config["routines"]["baseline"], "actions": [
+        {"entity_id": "input_boolean.hotplate", "state": "on", "start": "7:00am", "end": "10:00am", "repeat": "day"}]}
+    await client.send_json_auto_id({"type": "shabbot/routine/save", "routine": baseline})
+    res = await client.receive_json()
+    assert res["success"] and res["result"]["actions"][0]["repeat"] == "day"
+    # Meal routines don't repeat: the field is dropped on save.
+    meal = {**manager.config["routines"]["fri_standard"], "actions": [
+        {"entity_id": "input_boolean.hotplate", "state": "on", "start": "sunset", "end": "midnight", "repeat": "day"}]}
+    await client.send_json_auto_id({"type": "shabbot/routine/save", "routine": meal})
+    assert "repeat" not in (await client.receive_json())["result"]["actions"][0]
+
+    # Pesach 2027 + Shabbat: Thu, Fri, Sat. The device comes on each morning at 7.
+    freezer.move_to(datetime(2027, 4, 21, 12, 0, tzinfo=TZ))
+    manager.config["routines"]["fri_standard"]["actions"] = []
+    manager.rebuild()
+    for day in (22, 23, 24):
+        await _advance(hass, freezer, datetime(2027, 4, day, 7, 0, 1, tzinfo=TZ))
+        assert _state(hass, "hotplate") == "on", day
+        await _advance(hass, freezer, datetime(2027, 4, day, 10, 0, 1, tzinfo=TZ))
+        assert _state(hass, "hotplate") == "off", day

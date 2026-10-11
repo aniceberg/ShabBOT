@@ -10,7 +10,7 @@ const PARTS: Part[] = ["night", "day", "block"];
 const PART_HELP: Record<Part, string> = {
   night: "Runs on the evening of a Shabbat/Yom Tov day (e.g. Friday night dinner). Times like sunset refer to that evening.",
   day: "Runs on the day itself (e.g. Shabbat lunch).",
-  block: "Covers the whole Shabbat/Yom Tov from candle lighting to havdalah. Use it for devices that stay off (or on) the whole time; meal routines override it while they run.",
+  block: "Applies to every Shabbat/Yom Tov, whatever the meal plans; meal routines override it while they run. Each row runs once (times count from the first evening, so 7:00am means the next morning and 3:00pm means that Friday afternoon), every night (each evening → next morning), or every day (times on each day, so 7:00am–10:00am runs every morning of a 2- or 3-day Yom Tov).",
 };
 const COLORS = ["#2563eb", "#7c3aed", "#16a34a", "#0d9488", "#ea580c", "#db2777", "#64748b", "#94a3b8"];
 
@@ -162,8 +162,8 @@ export function RoutinesPage() {
                       value={a.temperature ?? ""} onChange={(e) => setAction(i, { temperature: e.target.value ? Number(e.target.value) : null })} />
                   )}
                 </div>
-                <div><span className="sb-cell-label">From</span><ExprInput value={a.start} onChange={(v) => setAction(i, { start: v })} part={draft.part} resolved={checks[i]?.first?.start} /></div>
-                <div><span className="sb-cell-label">Until</span><ExprInput value={a.end} onChange={(v) => setAction(i, { end: v })} part={draft.part} resolved={checks[i]?.first?.end} /></div>
+                <div><span className="sb-cell-label">From</span><ExprInput value={a.start} onChange={(v) => setAction(i, { start: v })} part={contextPart(draft.part, a)} resolved={checks[i]?.first?.start} /></div>
+                <div><span className="sb-cell-label">Until</span><ExprInput value={a.end} onChange={(v) => setAction(i, { end: v })} part={contextPart(draft.part, a)} resolved={checks[i]?.first?.end} /></div>
                 <div><span className="sb-cell-label">Afterwards</span><select className="sb-select" value={a.end_state ?? ""} title="What to do when the window ends (if no other routine covers it)"
                   onChange={(e) => setAction(i, { end_state: (e.target.value || null) as Action["end_state"] })}>
                   <option value="">{a.state === "on" ? "Turn off" : "Leave as is"}</option>
@@ -175,7 +175,18 @@ export function RoutinesPage() {
                   onClick={() => setDraft({ ...draft, actions: draft.actions.filter((_, j) => j !== i) })}>
                   <Icon name="trash" size={16} />
                 </button>
-                <RowMessage check={checks[i]} />
+                {draft.part === "block" && (
+                  <label className="sb-row-msg sb-row" style={{ gap: 8 }}>
+                    <span className="sb-hint">Repeat</span>
+                    <select className="sb-select" style={{ width: "auto", minWidth: 260 }} value={a.repeat ?? "once"}
+                      onChange={(e) => setAction(i, { repeat: e.target.value as Action["repeat"] })}>
+                      <option value="once">Once for the whole Shabbat/Yom Tov</option>
+                      <option value="night">Every night (evening → next morning)</option>
+                      <option value="day">Every day (that day's morning → evening)</option>
+                    </select>
+                  </label>
+                )}
+                <RowMessage check={checks[i]} part={draft.part} />
               </div>
             ))}
           </div>
@@ -201,10 +212,10 @@ export function RoutinesPage() {
 function useRowChecks(draft: Routine | null): (RowCheck | undefined)[] {
   const [checks, setChecks] = useState<RowCheck[]>([]);
   useEffect(() => setChecks([]), [draft?.id]); // don't show another routine's results
-  const key = draft ? JSON.stringify([draft.part, draft.actions.map((a) => [a.start, a.end])]) : "";
+  const key = draft ? JSON.stringify([draft.part, draft.actions.map((a) => [a.start, a.end, a.repeat])]) : "";
   useEffect(() => {
     if (!draft) return;
-    const actions = draft.actions.map((a) => ({ start: a.start, end: a.end }));
+    const actions = draft.actions.map((a) => ({ start: a.start, end: a.end, repeat: a.repeat ?? null }));
     if (actions.some((a) => !a.start.trim() || !a.end.trim())) return;
     let cancelled = false;
     const t = setTimeout(() => {
@@ -224,7 +235,11 @@ const duration = (start: string, end: string) => {
   return `${Math.floor(mins / 60)} h${mins % 60 ? ` ${mins % 60} m` : ""}`;
 };
 
-function RowMessage({ check }: { check?: RowCheck }) {
+/** The context a row's times are read in: a repeated baseline row previews like a night or day meal. */
+const contextPart = (part: Part, a: Action): Part =>
+  part === "block" && (a.repeat === "night" || a.repeat === "day") ? a.repeat : part;
+
+function RowMessage({ check, part }: { check?: RowCheck; part: Part }) {
   if (!check || check.error || check.total === 0) return null;
   if (check.always_invalid) {
     return (
@@ -240,6 +255,14 @@ function RowMessage({ check }: { check?: RowCheck }) {
     parts.push(check.next_day === check.total
       ? `Crosses midnight: ends the next day (${when}).`
       : `On ${check.next_day} of ${check.total} dates this crosses midnight and ends the next day, because the zmanim shift with the seasons (first: ${when}).`);
+  }
+  const span = (e: { start: string; end: string }) => `${dateShort(e.start)} ${time(e.start)} → ${dateShort(e.end)} ${time(e.end)}`;
+  if (part === "block" && check.before_start_example) {
+    parts.push(`Starts before Shabbat/Yom Tov begins (${span(check.before_start_example)}).`);
+  }
+  if (part === "block" && check.after_end_example) {
+    parts.push(`Runs past the end of Shabbat/Yom Tov (${span(check.after_end_example)})${
+      check.after_end < check.total ? ` on ${check.after_end} of ${check.total} dates` : ""}.`);
   }
   if (check.invalid > 0) {
     parts.push(`Skipped on ${check.invalid} of ${check.total} dates where the times can't work${check.invalid_example ? ` (first: ${check.invalid_example.title})` : ""}.`);

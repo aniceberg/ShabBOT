@@ -55,6 +55,7 @@ ACTION_SCHEMA = vol.Schema({
     vol.Required("end"): _expr,
     vol.Optional("end_state"): vol.Any(None, vol.In(END_STATES)),
     vol.Optional("label"): vol.Any(None, str),
+    vol.Optional("repeat"): vol.Any(None, vol.In(planner.REPEATS)),  # baseline rows only
 })
 ROUTINE_SCHEMA = vol.Schema({
     vol.Optional("id"): vol.Any(None, str),
@@ -287,12 +288,13 @@ def _check_routine(m: ShabbotManager, part: str, actions: list[dict]) -> list[pl
 @websocket_api.websocket_command({
     vol.Required("type"): "shabbot/routine/check",
     vol.Required("part"): vol.In(PARTS),
-    vol.Required("actions"): [{vol.Required("start"): str, vol.Required("end"): str}],
+    vol.Required("actions"): [{vol.Required("start"): str, vol.Required("end"): str,
+                               vol.Optional("repeat"): vol.Any(None, vol.In(planner.REPEATS))}],
 })
 @websocket_api.async_response
 @_ready
 async def ws_routine_check(hass, connection, msg) -> None:
-    actions = [{"start": a["start"], "end": a["end"]} for a in msg["actions"]]
+    actions = [{"start": a["start"], "end": a["end"], "repeat": a.get("repeat")} for a in msg["actions"]]
     connection.send_result(msg["id"], [c.to_dict() for c in _check_routine(_mgr(hass), msg["part"], actions)])
 
 
@@ -306,6 +308,9 @@ async def ws_routine_check(hass, connection, msg) -> None:
 async def ws_routine_save(hass, connection, msg) -> None:
     m = _mgr(hass)
     routine = ROUTINE_SCHEMA(msg["routine"])
+    for action in routine["actions"]:
+        if routine["part"] != "block" or action.get("repeat") in (None, planner.ONCE):
+            action.pop("repeat", None)  # only baseline rows repeat; "once" is the default
     for check in _check_routine(m, routine["part"], routine["actions"]):
         if check.always_invalid:
             entity = routine["actions"][check.index]["entity_id"]

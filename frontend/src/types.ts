@@ -13,6 +13,8 @@ export interface Action {
   end: string;
   end_state?: "on" | "off" | "leave" | null;
   label?: string | null;
+  /** Baseline rows only: run once, every night, or every day of the Shabbat/Yom Tov. */
+  repeat?: "once" | "night" | "day" | null;
 }
 
 export interface Routine {
@@ -153,6 +155,8 @@ export interface PlannedAction {
   disabled: boolean;
   error: string | null;
   next_day: boolean;
+  occurrence_key: string | null;
+  occurrence_title: string | null;
 }
 
 export interface Instance {
@@ -259,4 +263,8 @@ export interface RowCheck {
   first: { key: string; title: string; start: string; end: string; next_day: boolean } | null;
   next_day_example: { key: string; title: string; start: string; end: string } | null;
   invalid_example: { key: string; title: string } | null;
+  before_start: number;
+  after_end: number;
+  before_start_example: { key: string; title: string; start: string; end: string } | null;
+  after_end_example: { key: string; title: string; start: string; end: string } | null;
 }

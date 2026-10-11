@@ -289,14 +289,17 @@ function InstanceDetail({ inst, config, onDevice }: { inst: Instance; config: Co
           <DeviceTimeline actions={inst.actions} color={inst.color ?? "#2f5bd3"} anchors={inst.slot?.anchors} onEntityClick={onDevice} />
           <div className="sb-list">
             {inst.actions.map((a) => (
-              <div key={a.action_id} className="sb-list-item">
+              <div key={`${a.action_id}-${a.occurrence_key ?? ""}`} className="sb-list-item">
                 <input type="checkbox" checked={!a.disabled} title="Run this time"
                   onChange={(e) => toggleAction(a.action_id, e.target.checked)} />
                 <div className="sb-grow">
-                  <div className="sb-ellipsis">{friendlyName(a.entity_id)}</div>
+                  <div className="sb-ellipsis">
+                    {friendlyName(a.entity_id)}
+                    {a.occurrence_title && <span className="sb-hint"> · {a.occurrence_title}</span>}
+                  </div>
                   {a.error ? <div className="sb-error">{a.error}</div> : (
                     <div className="sb-hint sb-tnum">
-                      {a.state === "on" ? "On" : "Off"} {time(a.start)} – {a.next_day ? dayTime(a.end) : time(a.end)}
+                      {a.state === "on" ? "On" : "Off"} {a.occurrence_key ? dayTime(a.start) : time(a.start)} – {a.next_day ? dayTime(a.end) : time(a.end)}
                       {a.attrs.brightness ? ` · ${a.attrs.brightness}%` : ""}
                       {a.end_state !== "leave" ? ` · then ${a.end_state}` : ""}
                     </div>
@@ -329,7 +332,7 @@ function DeviceDetail({ entity, block }: { entity: string; block: Block }) {
       <DeviceTimeline
         actions={sorted.map((iv, i) => ({
           action_id: `${iv.action_id}-${i}`, entity_id: `${iv.routine_name}`, state: iv.state, attrs: iv.attrs,
-          start: iv.start, end: iv.end, end_state: iv.end_state, disabled: false, error: null, next_day: false,
+          start: iv.start, end: iv.end, end_state: iv.end_state, disabled: false, error: null, next_day: false, occurrence_key: null, occurrence_title: null,
         }))}
         color="#2f5bd3"
         anchors={{ block_start: block.start, block_end: block.end }}

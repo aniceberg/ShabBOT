@@ -222,3 +222,57 @@ def test_instance_span_ignores_backwards_rows() -> None:
     inst = next(i for i in instances if i.target.key == "2026-10-10/night")
     assert inst.actions[0].error == "End is not after start"
     assert inst.end >= inst.start  # calendar events must never run backwards
+
+
+def _baseline_cfg(*actions: dict) -> dict:
+    return {**CONFIG, "routines": {**CONFIG["routines"], "baseline": {
+        "id": "baseline", "name": "Baseline", "part": "block", "actions": list(actions)}}}
+
+
+def _baseline_actions(day: date, cfg: dict) -> list[planner.PlannedAction]:
+    _, instances = planner.plan_range(day, day, BROOKLYN, MINHAG, cfg)
+    return next(i for i in instances if i.target.part == "block").actions
+
+
+CLOSET_DAILY = {**_action("cl", "light.closet", "7:00am", "10:00am"), "repeat": "day"}
+
+
+def test_every_day_row_runs_each_morning_of_two_day_yom_tov() -> None:
+    # Pesach 2028 starts Monday night (Apr 10): Tuesday and Wednesday are Yom Tov.
+    actions = _baseline_actions(date(2028, 4, 11), _baseline_cfg(CLOSET_DAILY))
+    assert [(a.start, a.end) for a in actions] == [
+        (datetime(2028, 4, 11, 7, 0, tzinfo=TZ), datetime(2028, 4, 11, 10, 0, tzinfo=TZ)),
+        (datetime(2028, 4, 12, 7, 0, tzinfo=TZ), datetime(2028, 4, 12, 10, 0, tzinfo=TZ)),
+    ]
+    assert [a.occurrence_title for a in actions] == ["Pesach I — Day", "Pesach II — Day"]
+    # The same row set to "once" only runs the first morning.
+    once = _baseline_actions(date(2028, 4, 11), _baseline_cfg({**CLOSET_DAILY, "repeat": "once"}))
+    assert [(a.start.date(), a.occurrence_key) for a in once] == [(date(2028, 4, 11), None)]
+
+
+def test_every_day_row_runs_three_mornings_of_three_day_block() -> None:
+    actions = _baseline_actions(date(2027, 4, 22), _baseline_cfg(CLOSET_DAILY))
+    assert [a.start.date().isoformat() for a in actions] == ["2027-04-22", "2027-04-23", "2027-04-24"]
+    tl = planner.Timeline(planner.plan_range(date(2027, 4, 22), date(2027, 4, 22), BROOKLYN, MINHAG,
+                                             _baseline_cfg(CLOSET_DAILY))[1])
+    assert tl.desired_at("light.closet", datetime(2027, 4, 23, 8, 0, tzinfo=TZ)).state == "on"
+    assert tl.desired_at("light.closet", datetime(2027, 4, 23, 11, 0, tzinfo=TZ)) is None
+
+
+def test_every_night_row_runs_each_night() -> None:
+    night_off = {**_action("bd", "light.bedroom", "sunset", "sunrise", state="off"), "repeat": "night"}
+    actions = _baseline_actions(date(2027, 4, 22), _baseline_cfg(night_off))
+    assert len(actions) == 3 and all(a.next_day and a.error is None for a in actions)
+    assert [a.end.date().isoformat() for a in actions] == ["2027-04-22", "2027-04-23", "2027-04-24"]
+
+
+def test_check_actions_respects_repeat_and_flags_outside_block() -> None:
+    blocks = jcal.blocks_between(date(2026, 10, 5), date(2027, 10, 4), BROOKLYN, MINHAG)
+    daily, nightly_wrong, early = planner.check_actions("block", [
+        CLOSET_DAILY,
+        {**_action("x", "light.x", "sunset", "sunrise"), "repeat": "day"},  # last day runs past havdalah
+        _action("y", "light.y", "3:00pm", "havdalah"),  # "once": Friday 3 PM is before Shabbat
+    ], blocks, TZ)
+    assert daily.total > len(blocks) and daily.before_start == 0 and daily.after_end == 0
+    assert nightly_wrong.after_end > 0
+    assert early.before_start == early.total

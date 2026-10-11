@@ -84,6 +84,24 @@ def evaluate_window(action: dict[str, Any], target: Target, tz) -> tuple[datetim
     raise timeexpr.ExprError("End is not after start")
 
 
+ONCE, EVERY_NIGHT, EVERY_DAY = "once", "night", "day"
+REPEATS = (ONCE, EVERY_NIGHT, EVERY_DAY)
+
+
+def repeat_of(action: dict[str, Any], target: Target) -> str:
+    """Baseline rows can repeat every night or every day of the block; meal-routine rows never repeat."""
+    repeat = action.get("repeat") or ONCE
+    return repeat if target.part == BLOCK_PART and repeat in REPEATS else ONCE
+
+
+def occurrence_targets(action: dict[str, Any], target: Target) -> list[Target]:
+    """The contexts an action is evaluated in: the target itself, or each night/day slot of its block."""
+    repeat = repeat_of(action, target)
+    if repeat == ONCE:
+        return [target]
+    return [t for t in targets_for_block(target.block) if t.part == repeat]
+
+
 def targets_for_block(block: jcal.Block) -> list[Target]:
     targets = [Target(key=f"{block.id}/block", part=BLOCK_PART, block=block, slot=None)]
     targets += [Target(key=s.key, part=s.part.value, block=block, slot=s) for s in block.slots]
@@ -192,10 +210,13 @@ class PlannedAction:
     disabled: bool = False
     error: str | None = None
     next_day: bool = False  # end was read as the next day's time (crosses midnight)
+    occurrence_key: str | None = None  # for baseline rows repeated every night/day: which slot
+    occurrence_title: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "next_day": self.next_day,
+            "occurrence_key": self.occurrence_key, "occurrence_title": self.occurrence_title,
             "action_id": self.action_id, "entity_id": self.entity_id, "state": self.state, "attrs": self.attrs,
             "start": self.start.isoformat() if self.start else None,
             "end": self.end.isoformat() if self.end else None,
@@ -260,16 +281,21 @@ def plan_instance(target: Target, config: dict[str, Any], tz) -> Instance:
     disabled = set(((config.get("assignments") or {}).get(target.key) or {}).get("disabled_actions") or [])
     for action in routine.get("actions", []):
         attrs = {k: action[k] for k in ("brightness", "temperature") if action.get(k) is not None}
-        pa = PlannedAction(
-            action_id=action["id"], entity_id=action["entity_id"], state=action.get("state", "on"), attrs=attrs,
-            start=None, end=None, end_state=action.get("end_state") or default_end_state(action.get("state", "on")),
-            disabled=action["id"] in disabled,
-        )
-        try:
-            pa.start, pa.end, pa.next_day = evaluate_window(action, target, tz)
-        except timeexpr.ExprError as err:
-            pa.error = str(err)
-        inst.actions.append(pa)
+        repeated = repeat_of(action, target) != ONCE
+        for occ in occurrence_targets(action, target):
+            pa = PlannedAction(
+                action_id=action["id"], entity_id=action["entity_id"], state=action.get("state", "on"), attrs=attrs,
+                start=None, end=None,
+                end_state=action.get("end_state") or default_end_state(action.get("state", "on")),
+                disabled=action["id"] in disabled,
+                occurrence_key=occ.key if repeated else None,
+                occurrence_title=occ.title if repeated else None,
+            )
+            try:
+                pa.start, pa.end, pa.next_day = evaluate_window(action, occ, tz)
+            except timeexpr.ExprError as err:
+                pa.error = str(err)
+            inst.actions.append(pa)
     return inst
 
 
@@ -282,15 +308,19 @@ def plan_range(start: date, end: date, loc: astro.Location, minhag: jcal.Minhag,
 
 @dataclass(slots=True)
 class ActionCheck:
-    """How one routine row behaves across upcoming occurrences of its part."""
+    """How one routine row behaves across its upcoming occurrences."""
 
     index: int
     total: int = 0
     next_day: int = 0  # occurrences where the end was read as the next day (crosses midnight)
     invalid: int = 0  # occurrences where the window doesn't work even as next-day
+    before_start: int = 0  # occurrences starting before the Shabbat/Yom Tov begins
+    after_end: int = 0  # occurrences ending after it ends
     error: str | None = None  # expression error (same for every occurrence)
     next_day_example: dict[str, str] | None = None
     invalid_example: dict[str, str] | None = None
+    before_start_example: dict[str, str] | None = None
+    after_end_example: dict[str, str] | None = None
     first: dict[str, Any] | None = None  # next valid occurrence, for previews
 
     @property
@@ -299,21 +329,25 @@ class ActionCheck:
 
     def to_dict(self) -> dict[str, Any]:
         return {"index": self.index, "total": self.total, "next_day": self.next_day, "invalid": self.invalid,
+                "before_start": self.before_start, "after_end": self.after_end,
                 "always_invalid": self.always_invalid, "error": self.error, "first": self.first,
-                "next_day_example": self.next_day_example, "invalid_example": self.invalid_example}
+                "next_day_example": self.next_day_example, "invalid_example": self.invalid_example,
+                "before_start_example": self.before_start_example, "after_end_example": self.after_end_example}
 
 
 def check_actions(part: str, actions: list[dict[str, Any]], blocks: list[jcal.Block], tz) -> list[ActionCheck]:
-    """Evaluate each action's window on every target of `part` in `blocks`.
+    """Evaluate each action's window on every occurrence of `part` in `blocks`.
 
     Zmanim move with the seasons, so a row like `sunset` → `7pm` is an evening window in winter but
-    crosses midnight in summer; this reports both, plus windows that never fit.
+    crosses midnight in summer; this reports both, plus windows that never fit and (for baselines)
+    windows that start before or end after the Shabbat/Yom Tov.
     """
     targets = [t for b in blocks for t in targets_for_block(b) if t.part == part]
     results = []
     for i, action in enumerate(actions):
         res = ActionCheck(index=i)
-        for t in targets:
+        occurrences = [occ for t in targets for occ in occurrence_targets(action, t)]
+        for t in occurrences:
             try:
                 timeexpr.evaluate(action["start"], t.anchors, t.base_date, t.night, tz)
                 timeexpr.evaluate(action["end"], t.anchors, t.base_date, t.night, tz)
@@ -332,6 +366,12 @@ def check_actions(part: str, actions: list[dict[str, Any]], blocks: list[jcal.Bl
             if next_day:
                 res.next_day += 1
                 res.next_day_example = res.next_day_example or occurrence
+            if start < t.block.start:
+                res.before_start += 1
+                res.before_start_example = res.before_start_example or occurrence
+            if end > t.block.end:
+                res.after_end += 1
+                res.after_end_example = res.after_end_example or occurrence
         results.append(res)
     return results
 

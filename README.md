@@ -30,6 +30,11 @@ Works on every Home Assistant install type (OS, Supervised, Container, Core). In
 
 **Routine**: runs for a night, a day, or the whole block ("baseline"). Each row keeps one device on (or off) between two times. When meal routines and the baseline overlap, the meal wins.
 
+**Baseline rows** apply to every Shabbat/Yom Tov whatever the meal plans, and each can **repeat**:
+- *Once* (default): times count from the first evening, so `7:00am` means the next morning and `3:00pm` means that Friday afternoon.
+- *Every night*: read in each evening's frame (evening → next morning), e.g. bedroom lights off `sunset` → `sunrise` every night of a 2- or 3-day Yom Tov.
+- *Every day*: read on each day itself, e.g. closet lights on `7:00am` → `10:00am` every morning of a 2- or 3-day Yom Tov.
+
 **Time expressions**
 
 | Example | Meaning |

@@ -5,3 +5,17 @@ window.customIcons.shabbot = {
   getIcon: async (name) => ICONS[name] ?? ICONS.logo,
   getIconList: async () => Object.keys(ICONS).map((name) => ({ name })),
 };
+// The sidebar may render before this script runs; <ha-icon> then gives up on the unknown
+// prefix and stays blank. Re-set the icon on any such element so it loads from this set.
+const repaint = (root) => {
+  for (const el of root.querySelectorAll('*')) {
+    if (el.localName === 'ha-icon' && el.icon?.startsWith('shabbot:') && (el._legacy || !el._path)) {
+      const icon = el.icon;
+      el._legacy = false;  // ha-icon never clears this flag for custom icon sets
+      el.icon = undefined;
+      setTimeout(() => { el.icon = icon; }, 0);
+    }
+    if (el.shadowRoot) repaint(el.shadowRoot);
+  }
+};
+for (const ms of [0, 500, 2000, 5000]) setTimeout(() => repaint(document), ms);
