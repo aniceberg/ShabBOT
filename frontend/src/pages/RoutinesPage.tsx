@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { callWS } from "../hass";
 import { errorMessage, invalidateAll, useConfig } from "../api";
 import { Field, Icon, Loading, SaveBar } from "../components/ui";
@@ -24,6 +24,10 @@ const blankAction = (part: Part): Action => ({
   end_state: null,
 });
 
+/** Rows copied from another routine: fresh ids, and only baseline rows keep their repeat. */
+const copyRows = (actions: Action[], part: Part): Action[] =>
+  actions.map(({ repeat, ...a }) => ({ ...structuredClone(a), id: tempId(), ...(part === "block" && repeat ? { repeat } : {}) }));
+
 /** Editor copy of a routine: every row lists its devices in `entity_ids`. */
 const normalize = (r: Routine): Routine => ({
   ...structuredClone(r),
@@ -40,10 +44,13 @@ export function RoutinesPage() {
   const routines = useMemo(() => Object.values(data?.config.routines ?? {}), [data]);
   const checks = useRowChecks(draft);
   const reorder = useReorder(draft?.actions ?? [], (actions) => setDraft((d) => d && { ...d, actions }));
+  // Open the first routine on load only; later a null selection means a new, unsaved routine.
+  const opened = useRef(false);
   useEffect(() => {
-    if (!data) return;
-    if (selected === null && routines.length) setSelected(routines[0].id);
-  }, [data, routines, selected]);
+    if (opened.current || !routines.length) return;
+    opened.current = true;
+    if (selected === null) setSelected(routines[0].id);
+  }, [routines, selected]);
   // Load the draft only when the selection changes, so background refreshes never wipe unsaved edits.
   useEffect(() => {
     const routine = selected ? data?.config.routines[selected] : undefined;
@@ -84,6 +91,18 @@ export function RoutinesPage() {
   const create = (part: Part) => {
     setSelected(null);
     setDraft({ id: "", name: "New routine", part, color: COLORS[routines.length % COLORS.length], description: "", actions: [] });
+  };
+
+  const duplicate = () => {
+    if (!draft) return;
+    setSelected(null);
+    setDraft({ ...structuredClone(draft), id: "", name: `${draft.name} (copy)`, actions: copyRows(draft.actions, draft.part) });
+  };
+
+  const copyFrom = (id: string) => {
+    const source = data.config.routines[id];
+    if (!draft || !source) return;
+    setDraft({ ...draft, actions: [...draft.actions, ...copyRows(normalize(source).actions, draft.part)] });
   };
 
   const remove = async () => {
@@ -205,7 +224,20 @@ export function RoutinesPage() {
             <button className="sb-btn" onClick={() => setDraft({ ...draft, actions: [...draft.actions, blankAction(draft.part)] })}>
               <Icon name="plus" size={16} /> Add device
             </button>
+            <select className="sb-select" style={{ width: "auto" }} value="" aria-label="Copy rows from another routine"
+              title="Add a copy of another routine's rows to this one" onChange={(e) => copyFrom(e.target.value)}>
+              <option value="">Copy rows from…</option>
+              {PARTS.map((part) => {
+                const sources = routines.filter((r) => r.part === part && r.id !== draft.id && r.actions.length);
+                return sources.length > 0 && (
+                  <optgroup key={part} label={`${PART_LABEL[part]} routines`}>
+                    {sources.map((r) => <option key={r.id} value={r.id}>{r.name} ({r.actions.length})</option>)}
+                  </optgroup>
+                );
+              })}
+            </select>
             <span className="sb-spacer" />
+            {draft.id && <button className="sb-btn" onClick={duplicate}><Icon name="copy" size={16} /> Duplicate routine</button>}
             {draft.id && <button className="sb-btn sb-btn-danger" onClick={remove}>Delete routine</button>}
           </div>
           <SaveBar dirty={dirty || !draft.id} blocked={checks.some((c) => c?.always_invalid) || missingDevice} saving={saving}

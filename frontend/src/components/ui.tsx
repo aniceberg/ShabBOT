@@ -7,6 +7,7 @@ const PATHS = {
   right: "M9 6l6 6-6 6",
   plus: "M12 5v14M5 12h14",
   trash: "M5 7h14M10 7V5h4v2M7 7l1 13h8l1-13",
+  copy: "M9 9h11v11H9zM5 15H4V4h11v1",
   up: "M6 15l6-6 6 6",
   down: "M6 9l6 6 6-6",
   shield: "M12 3l7 3v5c0 5-3 8.5-7 10-4-1.5-7-5-7-10V6z",
