@@ -173,7 +173,8 @@ def _range(msg: dict) -> tuple[date, date]:
 async def ws_config(hass, connection, msg) -> None:
     m = _mgr(hass)
     connection.send_result(msg["id"], {
-        "config": m.config,
+        # routine_order: the panel's cache can't see a change in key order alone, so send the order as a list.
+        "config": {**m.config, "routine_order": list(m.config["routines"])},
         "meta": {
             "version": VERSION,
             "anchors": list(timeexpr.ANCHORS),
@@ -353,6 +354,23 @@ async def ws_routine_delete(hass, connection, msg) -> None:
             del m.config["assignments"][key]
     m.config_changed()
     connection.send_result(msg["id"])
+
+
+@websocket_api.websocket_command({vol.Required("type"): "shabbot/routines/reorder", vol.Required("routine_ids"): [str]})
+@websocket_api.require_admin
+@websocket_api.async_response
+@_ready
+async def ws_routines_reorder(hass, connection, msg) -> None:
+    """Set the order routines are listed in; ids not given keep their place at the end."""
+    m = _mgr(hass)
+    routines = m.config["routines"]
+    order = list(dict.fromkeys(rid for rid in msg["routine_ids"] if rid in routines))
+    order += [rid for rid in routines if rid not in order]
+    reordered = {rid: routines[rid] for rid in order}
+    routines.clear()
+    routines.update(reordered)
+    m.config_changed(reconcile=False)  # order is only for display
+    connection.send_result(msg["id"], order)
 
 
 @websocket_api.websocket_command({vol.Required("type"): "shabbot/rules/save", vol.Required("rules"): list})
@@ -551,7 +569,7 @@ async def ws_learn(hass, connection, msg) -> None:
 def async_setup_websocket(hass: HomeAssistant) -> None:
     for handler in (
         ws_config, ws_plan, ws_timeline, ws_preview, ws_status, ws_activity, ws_subscribe, ws_export, ws_routine_check,
-        ws_routine_save, ws_routine_delete, ws_rules_save, ws_modes_save, ws_device_save, ws_device_delete,
+        ws_routine_save, ws_routine_delete, ws_routines_reorder, ws_rules_save, ws_modes_save, ws_device_save, ws_device_delete,
         ws_zwave_preset, ws_settings_save, ws_assignment_set, ws_override_start, ws_override_end, ws_resume,
         ws_import, ws_learn,
     ):

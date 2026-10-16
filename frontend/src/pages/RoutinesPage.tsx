@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { callWS } from "../hass";
-import { errorMessage, invalidateAll, useConfig } from "../api";
+import { errorMessage, invalidateAll, queryClient, useConfig } from "../api";
 import { Field, Icon, Loading, SaveBar } from "../components/ui";
 import { EntityMultiPicker, ExprInput } from "../components/inputs";
 import { DragHandle, tempId, useReorder } from "../components/reorder";
 import { dateShort, PART_LABEL, time } from "../format";
-import { entitiesOf, type Action, type Part, type Routine, type RowCheck } from "../types";
+import { entitiesOf, type Action, type Config, type Meta, type Part, routineList, type Routine, type RowCheck } from "../types";
 
 const PARTS: Part[] = ["night", "day", "block"];
 const PART_HELP: Record<Part, string> = {
@@ -41,7 +41,7 @@ export function RoutinesPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
-  const routines = useMemo(() => Object.values(data?.config.routines ?? {}), [data]);
+  const routines = useMemo(() => (data ? routineList(data.config) : []), [data]);
   const checks = useRowChecks(draft);
   const reorder = useReorder(draft?.actions ?? [], (actions) => setDraft((d) => d && { ...d, actions }));
   // Open the first routine on load only; later a null selection means a new, unsaved routine.
@@ -128,17 +128,8 @@ export function RoutinesPage() {
               <span className="sb-spacer" />
               <button className="sb-btn sb-btn-sm sb-btn-ghost" onClick={() => create(part)}><Icon name="plus" size={14} /> New</button>
             </div>
-            <div className="sb-list">
-              {routines.filter((r) => r.part === part).map((r) => (
-                <button key={r.id} className="sb-list-item" onClick={() => setSelected(r.id)}
-                  style={selected === r.id ? { background: "var(--accent-soft)" } : undefined}>
-                  <i className="sb-dot" style={{ background: r.color ?? "var(--border)" }} />
-                  <span className="sb-grow sb-ellipsis">{r.name}</span>
-                  <span className="sb-hint">{r.actions.length}</span>
-                </button>
-              ))}
-              {routines.filter((r) => r.part === part).length === 0 && <div className="sb-list-item sb-hint">None yet</div>}
-            </div>
+            <RoutineList items={routines.filter((r) => r.part === part)} selected={selected} onSelect={setSelected}
+              onReorder={(ids) => reorderRoutines(routines.map((r) => r.id), ids)} />
           </div>
         ))}
       </div>
@@ -248,6 +239,51 @@ export function RoutinesPage() {
       ) : (
         <div className="sb-card sb-empty">Choose a routine, or create one.</div>
       )}
+    </div>
+  );
+}
+
+/** Puts one part's routines in a new order (keeping the slots the other parts use) and saves it. */
+function reorderRoutines(all: string[], partIds: string[]) {
+  const moved = new Set(partIds);
+  const queue = [...partIds];
+  const order = all.map((id) => (moved.has(id) ? queue.shift()! : id));
+  // Show the new order right away; the save confirms it.
+  queryClient.setQueryData<{ config: Config; meta: Meta }>(["config"], (old) => old && {
+    ...old,
+    config: { ...old.config, routine_order: order },
+  });
+  callWS({ type: "shabbot/routines/reorder", routine_ids: order }).finally(invalidateAll);
+}
+
+/** One part's routines, reorderable with the ⋮⋮ handle; the new order is saved when the drag ends. */
+function RoutineList({ items, selected, onSelect, onReorder }: {
+  items: Routine[]; selected: string | null; onSelect: (id: string) => void; onReorder: (ids: string[]) => void;
+}) {
+  const [moving, setMoving] = useState<Routine[] | null>(null);
+  const shown = moving ?? items;
+  const reorder = useReorder(shown, setMoving);
+  useEffect(() => {
+    if (!moving || reorder.dragging) return;
+    const ids = moving.map((r) => r.id);
+    if (ids.join() !== items.map((r) => r.id).join()) onReorder(ids);
+    setMoving(null);
+  }, [moving, reorder.dragging]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  return (
+    <div className="sb-list">
+      {shown.map((r, i) => (
+        <div key={r.id} className="sb-list-item sb-list-item-grip" {...reorder.row(i)}
+          style={selected === r.id ? { background: "var(--accent-soft)" } : undefined}>
+          {shown.length > 1 && <DragHandle {...reorder.handle(i)} />}
+          <button className="sb-list-select" onClick={() => onSelect(r.id)}>
+            <i className="sb-dot" style={{ background: r.color ?? "var(--border)" }} />
+            <span className="sb-grow sb-ellipsis">{r.name}</span>
+            <span className="sb-hint">{r.actions.length}</span>
+          </button>
+        </div>
+      ))}
+      {shown.length === 0 && <div className="sb-list-item sb-hint">None yet</div>}
     </div>
   );
 }

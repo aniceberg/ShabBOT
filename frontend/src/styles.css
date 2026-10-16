@@ -535,11 +535,18 @@ shabbot-panel *::after {
 
 .sb-drawer-body {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
+  overscroll-behavior: contain; /* scrolling past the end doesn't move the page behind */
   padding: 16px;
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+
+/* Keep each section at its full height so the body scrolls (instead of squeezing and clipping sections). */
+.sb-drawer-body > * {
+  flex-shrink: 0;
 }
 
 .sb-crumbs {
@@ -615,6 +622,31 @@ button.sb-list-item {
 
 button.sb-list-item:hover {
   background: var(--surface-2);
+}
+
+.sb-list-item-grip {
+  gap: 2px;
+  padding: 0 8px 0 4px;
+}
+
+.sb-list-item-grip:has(.sb-list-select:hover) {
+  background: var(--surface-2);
+}
+
+.sb-list-select {
+  appearance: none;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 4px 10px 6px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
 }
 
 .sb-list-item .sb-grow {

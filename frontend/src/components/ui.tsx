@@ -73,6 +73,16 @@ export function Drawer({ open, onClose, title, subtitle, crumbs, children, foote
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onClose]);
+  // While open, the page behind stays put: scrolling only moves the drawer.
+  useEffect(() => {
+    if (!open) return;
+    const page = document.documentElement;
+    const previous = page.style.overflow;
+    page.style.overflow = "hidden";
+    return () => {
+      page.style.overflow = previous;
+    };
+  }, [open]);
   if (!open) return null;
   return (
     <>

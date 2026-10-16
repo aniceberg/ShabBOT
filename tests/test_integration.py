@@ -330,3 +330,15 @@ async def test_routine_rows_store_device_lists(hass: HomeAssistant, manager: Sha
         **routine, "actions": [{"entity_ids": [], "state": "on", "start": "sunset", "end": "11pm"}]}})
     res = await client.receive_json()
     assert not res["success"] and "at least one device" in res["error"]["message"]
+
+
+async def test_routines_reorder(hass: HomeAssistant, manager: ShabbotManager, hass_ws_client) -> None:
+    client = await hass_ws_client(hass)
+    ids = list(manager.config["routines"])
+    wanted = [ids[1], ids[0], "missing"]
+    await client.send_json_auto_id({"type": "shabbot/routines/reorder", "routine_ids": wanted})
+    res = await client.receive_json()
+    assert res["success"]
+    assert res["result"] == list(manager.config["routines"]) == [ids[1], ids[0], *ids[2:]]
+    await client.send_json_auto_id({"type": "shabbot/config"})
+    assert (await client.receive_json())["result"]["config"]["routine_order"] == res["result"]

@@ -11,7 +11,7 @@ import { DeviceTimeline } from "../components/DeviceTimeline";
 import { RoutineSelect } from "../components/inputs";
 import { friendlyName } from "../hass";
 import { addDays, ANCHOR_LABEL, dateLong, dateShort, dayTime, isoDate, PART_LABEL, time } from "../format";
-import type { Block, Config, Instance, Interval } from "../types";
+import { routineList, type Block, type Config, type Instance, type Interval } from "../types";
 
 type ViewType = "multiMonthYear" | "dayGridMonth" | "timeGridWeek" | "timeGridDay";
 const VIEWS: { value: ViewType; label: string }[] = [
@@ -247,7 +247,7 @@ function InstanceDetail({ inst, config, onDevice }: { inst: Instance; config: Co
   const assignment = config.assignments[inst.key] ?? {};
   const disabled = new Set(assignment.disabled_actions ?? []);
   const defaultName = inst.default_routine_id ? config.routines[inst.default_routine_id]?.name : "nothing";
-  const routines = Object.values(config.routines);
+  const routines = routineList(config);
   const choice = assignment.skip ? "__skip__" : assignment.routine_id ?? null;
 
   const choose = (v: string | null) => {

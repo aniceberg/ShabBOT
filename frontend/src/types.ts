@@ -19,6 +19,12 @@ export interface Action {
   repeat?: "once" | "night" | "day" | null;
 }
 
+/** All routines in the order the user arranged them on the Routines page. */
+export const routineList = (config: Pick<Config, "routines" | "routine_order">): Routine[] => {
+  const ids = [...new Set([...(config.routine_order ?? []), ...Object.keys(config.routines)])];
+  return ids.map((id) => config.routines[id]).filter((r): r is Routine => !!r);
+};
+
 export const entitiesOf = (a: Pick<Action, "entity_ids" | "entity_id">): string[] =>
   a.entity_ids ?? (a.entity_id ? [a.entity_id] : []);
 
@@ -104,6 +110,8 @@ export interface Settings {
 export interface Config {
   settings: Settings;
   routines: Record<string, Routine>;
+  /** Routine ids in the user's order (see routineList). */
+  routine_order?: string[];
   rules: Rule[];
   modes: Mode[];
   assignments: Record<string, { routine_id?: string; skip?: boolean; disabled_actions?: string[] }>;
