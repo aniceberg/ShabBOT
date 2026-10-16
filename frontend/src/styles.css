@@ -2,6 +2,7 @@ shabbot-panel {
   --bg: #f6f7f9;
   --surface: #ffffff;
   --surface-2: #f1f3f6;
+  --past-bg: #e9ecf0;
   --border: #e2e5ea;
   --text: #16191f;
   --muted: #5d6573;
@@ -32,6 +33,7 @@ shabbot-panel[data-color-scheme="dark"] {
   --bg: #111316;
   --surface: #1b1e23;
   --surface-2: #23272e;
+  --past-bg: #131519;
   --border: #30353d;
   --text: #e8eaed;
   --muted: #9aa1ad;
@@ -474,6 +476,19 @@ shabbot-panel *::after {
 
 .sb-ev-block {
   font-weight: 600;
+}
+
+/* Days already gone: shaded and italic, so today is the first unshaded day; their entries are muted. */
+.sb-cal .sb-past {
+  background: var(--past-bg);
+  font-style: italic;
+  color: var(--muted);
+}
+
+.sb-cal .sb-ev-past {
+  font-style: italic;
+  opacity: 0.5;
+  filter: saturate(0.35);
 }
 
 .sb-ev-skipped {

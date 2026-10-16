@@ -136,6 +136,10 @@ export function CalendarPage() {
             if (p.kind === "block" && p.id) setSel({ kind: "block", id: p.id });
             if (p.kind === "instance" && p.key) setSel({ kind: "instance", key: p.key });
           }}
+          dayCellClass={(d) => d.isPast && "sb-past"}
+          dayLaneClass={(d) => d.isPast && "sb-past"}
+          eventClass={(e) => e.isPast && "sb-ev-past"}
+          backgroundEventClass={(e) => e.isPast && "sb-ev-past"}
           nowIndicator
           dayMaxEvents={4}
           scrollTime="16:00:00"
