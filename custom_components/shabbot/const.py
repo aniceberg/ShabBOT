@@ -6,7 +6,7 @@ from typing import Final
 
 DOMAIN: Final = "shabbot"
 NAME: Final = "ShabBOT"
-VERSION: Final = "0.2.5"
+VERSION: Final = "0.2.6"
 
 STORAGE_VERSION: Final = 1
 STORAGE_KEY_CONFIG: Final = f"{DOMAIN}.config"
@@ -23,6 +23,7 @@ SIGNAL_ACTIVITY: Final = f"{DOMAIN}_activity"  # one activity entry
 ACTIVITY_MAX: Final = 2000
 PLAN_HORIZON_DAYS: Final = 60
 POLL_SECONDS: Final = 60
+SIMULATION_IDLE_MINUTES: Final = 30  # test mode ends by itself after this long without activity
 
 DEFAULT_SETTINGS: Final = {
     "candle_lighting_min": 18,
