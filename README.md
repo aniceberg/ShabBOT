@@ -76,7 +76,8 @@ The **Test** tab rehearses the schedule on your real devices. Pick a range (it d
 
 1. It lists what's about to change, e.g. `Simulating 10/23/26 @ 5:44 PM (Candle lighting − 20 min) events: Master Bedroom: OFF`. Times that come from zmanim show where they came from. You can first flip those devices to the opposite state, so you can see the change happen.
 2. **Begin test** sends the changes (even in dry run). Then mark the event **Pass** or **Fail**; on Fail, mark each device.
-3. **Cancel test** at any point shows the failures so far; **Copy results** copies them as text.
+3. **Skip** moves on without testing (its devices are marked skipped). **Back** returns to an earlier event: its results are kept unless you press **Re-test**.
+4. At the end, or if you **Cancel test** midway, a summary lists every event done so far with each device's Pass/Fail/Skipped; **Copy results** copies it as text.
 
 While a test runs, protection and the real schedule are paused. When it ends (or after 30 idle minutes), every device it touched goes back to what the schedule wants now, or else to how it was before. Tests can't start during Shabbat/Yom Tov.
 

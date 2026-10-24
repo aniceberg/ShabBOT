@@ -2,15 +2,22 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { callWS, friendlyName, shallowEqual, useHassSelector } from "../hass";
 import { errorMessage, invalidateAll, usePlan, useStatus } from "../api";
 import { Field, Icon } from "../components/ui";
-import { addDays, atTime, describeExpr, isoDate, localInput, time } from "../format";
+import { addDays, atTime, describeExpr, isoDate, localInput } from "../format";
 import type { SimCommand, SimStep } from "../types";
 
-type Verdict = "pass" | "fail";
+type Verdict = "pass" | "fail" | "skipped";
 interface StepResult {
-  verdict: Verdict | "skipped";
-  devices: Record<number, Verdict>; // per command, only when the step failed
+  verdict: Verdict;
+  devices: Record<number, Verdict>; // per command
 }
-type Phase = "setup" | "before" | "after" | "detail" | "results";
+type Phase = "setup" | "review" | "before" | "after" | "detail" | "results";
+
+const VERDICT_LABEL: Record<Verdict, string> = { pass: "Passed", fail: "Failed", skipped: "Skipped" };
+const VERDICT_BADGE: Record<Verdict, string> = { pass: "sb-badge-ok", fail: "sb-badge-danger", skipped: "sb-badge-muted" };
+const allDevices = (step: SimStep, v: Verdict): StepResult =>
+  ({ verdict: v, devices: Object.fromEntries(step.commands.map((_, i) => [i, v])) });
+const VerdictBadge = ({ v }: { v?: Verdict }) =>
+  v ? <span className={`sb-badge ${VERDICT_BADGE[v]}`}>{VERDICT_LABEL[v]}</span> : null;
 
 const opposite = (state: "on" | "off") => (state === "on" ? "off" : "on");
 const stateText = (c: Pick<SimCommand, "state" | "attrs">) =>
@@ -100,19 +107,27 @@ export function SimulatePage() {
     invalidateAll();
     setPhase("results");
   });
+  /** Open event i: review it if it already has a result, otherwise get ready to test it. */
+  const goTo = (i: number, rs = results) => {
+    if (!steps || i >= steps.length) return finish();
+    setIndex(i);
+    setPhase(rs[i] ? "review" : "before");
+  };
   const record = (r: StepResult) => {
     const next = [...results];
     next[index] = r;
     setResults(next);
-    if (steps && index + 1 < steps.length) {
-      setIndex(index + 1);
-      setPhase("before");
-    } else {
-      finish();
-    }
+    goTo(index + 1, next);
+  };
+  const retest = () => {
+    const next = [...results];
+    delete next[index];
+    setResults(next);
+    setPhase("before");
   };
 
   const step = steps?.[index];
+  const earlier = results[index];
 
   if (phase === "results" && steps) {
     return <Results steps={steps} results={results} onAgain={() => setPhase("setup")} />;
@@ -122,11 +137,28 @@ export function SimulatePage() {
     return (
       <div className="sb-stack sb-sim">
         <div className="sb-row">
+          <button className="sb-btn sb-btn-sm" disabled={busy || index === 0} onClick={() => goTo(index - 1)}
+            title="Go back to the previous event (its results are kept unless you re-test it)">
+            <Icon name="left" size={16} /> Back
+          </button>
           <span className="sb-hint">Event {index + 1} of {steps.length}</span>
           <span className="sb-spacer" />
           <button className="sb-btn sb-btn-danger" disabled={busy} onClick={finish}>Cancel test</button>
         </div>
-        <div className="sb-sim-progress"><i style={{ width: `${(index / steps.length) * 100}%` }} /></div>
+        <div className="sb-sim-progress"><i style={{ width: `${(results.filter(Boolean).length / steps.length) * 100}%` }} /></div>
+
+        {phase === "review" && earlier && (
+          <div className="sb-card sb-card-pad sb-stack">
+            <h3 className="sb-section-title" style={{ margin: 0 }}>{stepTitle(step)}: tested earlier — {VERDICT_LABEL[earlier.verdict]}</h3>
+            <CommandList step={step} render={(_, i) => <VerdictBadge v={earlier.devices[i]} />} />
+            <p className="sb-hint">Skip keeps these results. Re-test clears them and runs this event again.</p>
+            <div className="sb-row sb-wrap">
+              <span className="sb-spacer" />
+              <button className="sb-btn" disabled={busy} onClick={() => goTo(index + 1)}>Skip</button>
+              <button className="sb-btn sb-btn-primary" disabled={busy} onClick={retest}>Re-test</button>
+            </div>
+          </div>
+        )}
 
         {phase === "before" && (
           <div className="sb-card sb-card-pad sb-stack">
@@ -145,7 +177,7 @@ export function SimulatePage() {
                 Set all to opposite
               </button>
               <span className="sb-spacer" />
-              <button className="sb-btn" disabled={busy} onClick={() => record({ verdict: "skipped", devices: {} })}>Skip</button>
+              <button className="sb-btn" disabled={busy} onClick={() => record(allDevices(step, "skipped"))}>Skip</button>
               <button className="sb-btn sb-btn-primary" disabled={busy} onClick={() => act(async () => {
                 await apply(step.commands.map((c) => ({
                   entity_id: c.entity_id, state: c.state, attrs: c.attrs, reason: `${c.routine_name} (test of ${atTime(step.at)})`,
@@ -163,7 +195,7 @@ export function SimulatePage() {
             <div className="sb-row sb-wrap">
               <span className="sb-spacer" />
               <button className="sb-btn sb-btn-fail" onClick={() => setPhase("detail")}>Fail</button>
-              <button className="sb-btn sb-btn-pass" onClick={() => record({ verdict: "pass", devices: {} })}>Pass</button>
+              <button className="sb-btn sb-btn-pass" onClick={() => record(allDevices(step, "pass"))}>Pass</button>
             </div>
           </div>
         )}
@@ -232,7 +264,7 @@ export function SimulatePage() {
 }
 
 /** The devices in a step with their target and live state; `render` adds a control per row. */
-function CommandList({ step, render }: { step: SimStep; render?: (c: SimCommand) => ReactNode }) {
+function CommandList({ step, render }: { step: SimStep; render?: (c: SimCommand, i: number) => ReactNode }) {
   const ids = step.commands.map((c) => c.entity_id);
   const live = useHassSelector((h) => Object.fromEntries(ids.map((e) => [e, h.states[e]?.state ?? "missing"])), shallowEqual);
   const shared = sharedOrigin(step);
@@ -249,7 +281,7 @@ function CommandList({ step, render }: { step: SimStep; render?: (c: SimCommand)
           <span className={`sb-badge ${live[c.entity_id] === c.state ? "sb-badge-ok" : ""}`} title="Current state">
             now {live[c.entity_id]}
           </span>
-          {render?.(c)}
+          {render?.(c, i)}
         </div>
       ))}
     </div>
@@ -284,38 +316,51 @@ function DeviceVerdicts({ step, onDone }: { step: SimStep; onDone: (d: Record<nu
 function Results({ steps, results, onAgain }: { steps: SimStep[]; results: StepResult[]; onAgain: () => void }) {
   const counts = { pass: 0, fail: 0, skipped: 0 };
   results.forEach((r) => r && counts[r.verdict]++);
-  const untested = steps.length - results.filter(Boolean).length;
-  const failed = steps.map((s, i) => ({ s, r: results[i] })).filter(({ r }) => r?.verdict === "fail");
+  const done = steps.map((s, i) => ({ s, r: results[i] })).filter(({ r }) => r);
+  const untested = steps.length - done.length;
   const text = useMemo(() => [
     `ShabBOT test: ${counts.pass} passed, ${counts.fail} failed, ${counts.skipped} skipped${untested ? `, ${untested} not tested` : ""}`,
-    ...failed.flatMap(({ s, r }) => [
-      `${stepTitle(s)}:`,
-      ...s.commands.flatMap((c, i) => r.devices[i] === "fail"
-        ? [`  ${friendlyName(c.entity_id)} turn ${stateText(c)}: FAILED (${c.routine_name}${origin(c) ? `, ${origin(c)}` : ""})`] : []),
+    ...done.flatMap(({ s, r }) => [
+      "",
+      `${stepTitle(s)}: ${r.verdict.toUpperCase()}`,
+      ...s.commands.map((c, i) => `  ${friendlyName(c.entity_id)} turn ${stateText(c)}: ${(r.devices[i] ?? r.verdict).toUpperCase()}`
+        + ` (${c.routine_name}${origin(c) ? `, ${origin(c)}` : ""})`),
     ]),
-  ].join("\n"), [failed, counts.pass, counts.fail, counts.skipped, untested]);
+  ].join("\n"), [done, counts.pass, counts.fail, counts.skipped, untested]);
 
   return (
     <div className="sb-stack sb-sim">
       <div className="sb-card sb-card-pad sb-stack">
-        <h3 className="sb-section-title" style={{ margin: 0 }}>Test results</h3>
+        <h3 className="sb-section-title" style={{ margin: 0 }}>
+          Test summary{untested > 0 ? ` — ended early, ${done.length} of ${steps.length} events done` : ""}
+        </h3>
         <div className="sb-row sb-wrap">
           <span className="sb-badge sb-badge-ok">{counts.pass} passed</span>
           <span className={`sb-badge ${counts.fail ? "sb-badge-danger" : ""}`}>{counts.fail} failed</span>
           <span className="sb-badge">{counts.skipped} skipped</span>
-          {untested > 0 && <span className="sb-badge sb-badge-warn">{untested} not tested (cancelled)</span>}
+          {untested > 0 && <span className="sb-badge sb-badge-warn">{untested} not tested</span>}
         </div>
-        {failed.length === 0 ? <p className="sb-hint">No problems reported.</p> : failed.map(({ s, r }) => (
-          <div key={s.at} className="sb-stack" style={{ gap: 4 }}>
-            <strong>{stepTitle(s)}</strong>
-            {s.commands.map((c, i) => r.devices[i] === "fail" && (
-              <div key={i} className="sb-sim-fail">
-                {friendlyName(c.entity_id)} turn {stateText(c)} <span className="sb-hint">· {c.routine_name}
-                  {origin(c) ? ` · ${origin(c)}` : ""} · scheduled {time(s.at)}</span>
+        {done.length === 0 && <p className="sb-hint">No events were tested.</p>}
+        {done.map(({ s, r }) => (
+          <div key={s.at} className="sb-sim-summary">
+            <div className="sb-row">
+              <strong className="sb-grow">{stepTitle(s)}</strong>
+              <VerdictBadge v={r.verdict} />
+            </div>
+            {s.commands.map((c, i) => (
+              <div key={i} className={`sb-row ${r.devices[i] === "fail" ? "sb-sim-fail" : "sb-sim-device"}`}>
+                <span className="sb-grow">
+                  {friendlyName(c.entity_id)} turn {stateText(c)} <span className="sb-hint">· {c.routine_name}
+                    {origin(c) ? ` · ${origin(c)}` : ""}</span>
+                </span>
+                <VerdictBadge v={r.devices[i] ?? r.verdict} />
               </div>
             ))}
           </div>
         ))}
+        {untested > 0 && done.length > 0 && (
+          <p className="sb-hint">{untested} more {untested === 1 ? "event" : "events"} not tested.</p>
+        )}
         <div className="sb-row">
           <button className="sb-btn" onClick={() => navigator.clipboard?.writeText(text)}>Copy results</button>
           <span className="sb-spacer" />

@@ -6,7 +6,7 @@ from typing import Final
 
 DOMAIN: Final = "shabbot"
 NAME: Final = "ShabBOT"
-VERSION: Final = "0.2.6"
+VERSION: Final = "0.2.7"
 
 STORAGE_VERSION: Final = 1
 STORAGE_KEY_CONFIG: Final = f"{DOMAIN}.config"

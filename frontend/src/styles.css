@@ -1024,3 +1024,29 @@ button.sb-list-item:hover {
   padding-left: 12px;
   border-left: 3px solid var(--danger);
 }
+
+.sb-badge-muted {
+  font-style: italic;
+}
+
+.sb-sim-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.sb-sim-summary > .sb-row {
+  flex-wrap: nowrap;
+  align-items: flex-start;
+}
+
+.sb-sim-summary > .sb-row > .sb-badge {
+  flex-shrink: 0;
+}
+
+.sb-sim-device {
+  padding-left: 12px;
+  border-left: 3px solid var(--border);
+}
