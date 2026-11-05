@@ -1,12 +1,13 @@
 """Time expressions, rule resolution and the desired-state timeline."""
 
 from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 import pytest
 
 from custom_components.shabbot.core import astro, jcal, planner, timeexpr
 
-BROOKLYN = astro.Location(40.6501, -73.94958, "America/New_York", 18)
+BROOKLYN = astro.Location(40.6501, -73.94958, ZoneInfo("America/New_York"), 18)
 TZ = BROOKLYN.tzinfo
 MINHAG = jcal.Minhag()
 

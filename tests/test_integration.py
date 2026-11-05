@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 from freezegun.api import FrozenDateTimeFactory
 from homeassistant.core import Context, HomeAssistant
 from homeassistant.setup import async_setup_component
+from homeassistant.util import dt as dt_util
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry, async_fire_time_changed
 
@@ -74,6 +75,17 @@ def _block_times(m: ShabbotManager):
     (block,) = m.upcoming_blocks(3)
     night = block.slots[0]
     return block, night.anchors["sunset"]
+
+
+async def test_location_uses_home_assistant_time_zone(hass: HomeAssistant, manager: ShabbotManager) -> None:
+    """The zone comes from HA as an object, and follows a change to HA's zone."""
+    assert manager.location.tzinfo is dt_util.get_default_time_zone()
+    assert manager.now().tzinfo is dt_util.get_default_time_zone()
+
+    await hass.config.async_set_time_zone("Asia/Jerusalem")
+    assert str(manager.location.tzinfo) == "Asia/Jerusalem"
+    assert str(manager.now().tzinfo) == "Asia/Jerusalem"
+    assert manager.status()["location"]["time_zone"] == "Asia/Jerusalem"
 
 
 async def test_entities_created(hass: HomeAssistant, manager: ShabbotManager) -> None:

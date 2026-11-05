@@ -114,7 +114,7 @@ class ShabbotManager:
         return astro.Location(
             latitude=s["latitude"] if s.get("latitude") is not None else c.latitude,
             longitude=s["longitude"] if s.get("longitude") is not None else c.longitude,
-            time_zone=c.time_zone,
+            tzinfo=dt_util.get_default_time_zone(),
             elevation_m=float(c.elevation or 0),
         )
 
@@ -133,7 +133,7 @@ class ShabbotManager:
         )
 
     def now(self) -> datetime:
-        return dt_util.now().astimezone(self.location.tzinfo)
+        return dt_util.now()
 
     # ------------------------------------------------------------ lifecycle
 
@@ -611,6 +611,6 @@ class ShabbotManager:
             "simulation": self.simulation,
             "next_boundary": self._next_boundary.isoformat() if self._next_boundary else None,
             "location": {"latitude": self.location.latitude, "longitude": self.location.longitude,
-                         "time_zone": self.location.time_zone, "elevation": self.location.elevation_m},
+                         "time_zone": self.hass.config.time_zone, "elevation": self.location.elevation_m},
             "entities": rows,
         }
