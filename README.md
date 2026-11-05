@@ -12,12 +12,17 @@ Shabbat & Yom Tov automation for Home Assistant. Home Assistant stays the hub fo
 - **Intentional overrides**: a Zooz triple-tap (or a learned button press, or a quick flip pattern on Caséta/Kasa/Wemo) pauses protection for that device for N minutes; the opposite gesture ends it early.
 - Zmanim are calculated by ShabBOT itself (NOAA solar algorithm, checked against hebcal.com), so it doesn't depend on Home Assistant's Jewish Calendar integration.
 
-## Install (HACS)
+## Install
 
-1. HACS → ⋮ → **Custom repositories** → add this repository's URL, category **Integration**.
-2. Install **ShabBOT**, then restart Home Assistant.
-3. **Settings → Devices & services → Add integration → ShabBOT.** Set candle-lighting minutes, havdalah rule, and Israel/Diaspora. Location and time zone come from Home Assistant.
-4. Open **ShabBOT** in the sidebar.
+You need Home Assistant 2026.9 or newer. Installing from the Marketplace needs 2026.11, or HACS on older versions.
+
+1. Open **Settings → Marketplace**, search for **ShabBOT** and choose **Install**. If Home Assistant asks for a restart, restart it. If the search finds nothing yet, add this repository by link in the Marketplace (that needs a GitHub connection). In HACS, search for **ShabBOT**, or add this repository under ⋮ → **Custom repositories** with category **Integration**.
+2. Add the integration:
+
+   [![Add ShabBOT to Home Assistant](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=shabbot)
+
+   Or go to **Settings → Devices & services → Add integration → ShabBOT**. Set candle-lighting minutes, havdalah rule, and Israel/Diaspora. Location and time zone come from Home Assistant.
+3. Open **ShabBOT** in the sidebar.
 
 ShabBOT starts in **dry run**: it logs what it would do without touching any device. Turn it off ("Go live") after a Shabbat of watching the Activity tab.
 
@@ -121,7 +126,7 @@ Brand assets (integration icon/logo, sidebar icon, panel header icon, this READM
 DYLD_FALLBACK_LIBRARY_PATH=/usr/local/lib uvx --with cairosvg --with fonttools python assets/build_brand.py
 ```
 
-Release: publish a GitHub release tagged `vX.Y.Z`; the workflow builds the panel and attaches `shabbot.zip` for HACS.
+Release: publish a GitHub release tagged `vX.Y.Z`; the workflow builds the panel and attaches `shabbot.zip`, which the Marketplace and HACS install.
 
 ## License
 
