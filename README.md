@@ -30,11 +30,9 @@ Set your home's Shabbat and Yom Tov schedule once, and ShabBOT runs it. It works
 
 ### 1. Install
 
-Open **Settings → Marketplace**, search for **ShabBOT** and choose **Install**. Restart Home Assistant if it asks you to.
+ShabBOT is listed in the Marketplace (formerly HACS), so you don't need to add a repository first. Open **Settings → Marketplace**, search for **ShabBOT** and choose **Install**. Restart Home Assistant if it asks you to.
 
-If the search finds nothing yet, add `aniceberg/ShabBOT` by link in the Marketplace, which needs a GitHub connection.
-
-The Marketplace needs Home Assistant 2026.11 or newer. On older versions, use HACS: search for **ShabBOT**, or add this repository under ⋮ → **Custom repositories** with the category **Integration**.
+The Marketplace needs Home Assistant 2026.11 or newer. On older versions, open HACS, search for **ShabBOT** and download it.
 
 ### 2. Add the integration
 
