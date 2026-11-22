@@ -385,6 +385,17 @@ def test_same_entity_rows_that_tie_conflict() -> None:
     assert c.kind == "same" and {c.a.action_id, c.b.action_id} == {"x1", "x2"}
 
 
+def test_same_entity_in_separate_windows_is_fine() -> None:
+    """Two windows for one light (on 7-9am, on again 12-4pm, each turning off afterwards) don't fight."""
+    cfg = {**CONFIG, "routines": {**CONFIG["routines"], "lunch": {
+        "id": "lunch", "name": "Lunch", "part": "day", "actions": [
+            _action("w1", "light.living_room", "7am", "9am"),
+            _action("w2", "light.living_room", "12pm", "4pm"),
+        ]}}}
+    _, instances = planner.plan_range(date(2026, 11, 1), date(2026, 11, 28), BROOKLYN, MINHAG, cfg)
+    assert planner.find_conflicts(planner.Timeline(instances), []) == []
+
+
 def test_conflicts_counted_across_weeks() -> None:
     cfg = {**CONFIG, "routines": {**CONFIG["routines"], "std_night": {
         "id": "std_night", "name": "Standard Friday night", "part": "night", "actions": [

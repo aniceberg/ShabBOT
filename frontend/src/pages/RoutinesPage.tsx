@@ -205,9 +205,12 @@ export function RoutinesPage() {
                 </div>
                 <div><span className="sb-cell-label">From</span><ExprInput value={a.start} onChange={(v) => setAction(i, { start: v })} part={contextPart(draft.part, a)} resolved={checks[i]?.first?.start} /></div>
                 <div><span className="sb-cell-label">Until</span><ExprInput value={a.end} onChange={(v) => setAction(i, { end: v })} part={contextPart(draft.part, a)} resolved={checks[i]?.first?.end} /></div>
-                <div><span className="sb-cell-label">Afterwards</span><select className="sb-select" value={a.end_state ?? ""} title="What to do when the window ends (if no other routine covers it)"
-                  onChange={(e) => setAction(i, { end_state: (e.target.value || null) as Action["end_state"] })}>
-                  <option value="">{a.state === "on" ? "Turn off" : "Leave as is"}</option>
+                <div><span className="sb-cell-label">Afterwards</span><select className="sb-select" value={a.end_state ?? defaultEndState(a.state)} title="What to do when the window ends (if no other routine covers it)"
+                  onChange={(e) => {
+                    const v = e.target.value as NonNullable<Action["end_state"]>;
+                    // Store the default as null, so it keeps following the row's state if that changes.
+                    setAction(i, { end_state: v === defaultEndState(a.state) ? null : v });
+                  }}>
                   <option value="off">Turn off</option>
                   <option value="on">Turn on</option>
                   <option value="leave">Leave as is</option>
@@ -319,6 +322,9 @@ function RoutineList({ items, selected, onSelect, onReorder }: {
 }
 
 const DRAFT_ID = "__draft__";
+
+/** What a row does when its window ends if Afterwards is left unset (mirrors planner.default_end_state). */
+const defaultEndState = (state: Action["state"]) => (state === "on" ? "off" : "leave");
 
 const KIND_TEXT: Record<Conflict["kind"], string> = {
   same: "",
