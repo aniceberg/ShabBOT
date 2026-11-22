@@ -76,3 +76,22 @@ STARTER_RULES: Final = [
     ("Yom Tov night", "night", {"day_type": "yomtov_only"}, "yt_night"),
     ("Lunch", "day", {}, "day_standard"),
 ]
+
+# Sefirat Haomer reminder (see core/omer.py). Off until the user sets it up.
+DEFAULT_OMER: Final = {
+    "enabled": False,
+    "nusach": "edot_hamizrach",  # edot_hamizrach | ashkenaz | sefard (incl. Chabad)
+    "baomer": False,  # Ashkenaz: say "בָּעֹמֶר" (Rema) instead of "לָעֹמֶר"
+    "style": "full",  # full (bracha + count + harachaman [+ sefirah]) | count | simple
+    "divine_name": "hashem",  # hashem: "הַשֵּׁם אֱלֹקֵינוּ" in the bracha | full: as in the siddur
+    "sefirah": None,  # None = the nusach's custom (on except Ashkenaz)
+    "simple_language": "en",  # en | he
+    "last_night": False,  # simple style: also say what last night's count was
+    "time": "tzeit+5m",
+    "players": [],
+    "voices": [{"engine_id": "", "language": None, "voice": None}],  # spoken one after another
+    "pause_s": 10,
+    "volume": None,  # 0–100, set on the speakers first; None = leave as is
+    "shabbat_yomtov": "announce",  # announce | skip (nights that are Shabbat or Yom Tov)
+    "nights": {},  # evening ISO date -> "announce" | "skip": per-night choice over the default
+}

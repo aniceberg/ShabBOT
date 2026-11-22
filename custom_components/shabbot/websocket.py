@@ -14,9 +14,10 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 import voluptuous as vol
 
 from . import links
-from .const import DEFAULT_DEVICE, DEFAULT_SETTINGS, DOMAIN, SIGNAL_ACTIVITY, SIGNAL_UPDATE, VERSION
-from .core import gestures, jcal, planner, timeexpr
+from .const import DEFAULT_DEVICE, DEFAULT_OMER, DEFAULT_SETTINGS, DOMAIN, SIGNAL_ACTIVITY, SIGNAL_UPDATE, VERSION
+from .core import gestures, jcal, omer, planner, timeexpr
 from .manager import ShabbotManager
+from .omer import announce_time, night_info
 from .store import new_id
 
 PARTS = ["night", "day", "block"]
@@ -139,6 +140,43 @@ SETTINGS_SCHEMA = vol.Schema({
     vol.Optional("notify_overrides"): bool,
 })
 
+OMER_VOICE = vol.Schema({
+    vol.Required("engine_id"): str,
+    vol.Optional("language"): vol.Any(None, str),
+    vol.Optional("voice"): vol.Any(None, str),
+})
+OMER_SCHEMA = vol.Schema({
+    vol.Optional("enabled"): bool,
+    vol.Optional("nusach"): vol.In(omer.NUSACHS),
+    vol.Optional("baomer"): bool,
+    vol.Optional("style"): vol.In(omer.STYLES),
+    vol.Optional("divine_name"): vol.In(["hashem", "full"]),
+    vol.Optional("sefirah"): vol.Any(None, bool),
+    vol.Optional("simple_language"): vol.In(["en", "he"]),
+    vol.Optional("last_night"): bool,
+    vol.Optional("time"): _expr,
+    vol.Optional("players"): [str],
+    vol.Optional("voices"): vol.All([OMER_VOICE], vol.Length(max=4)),
+    vol.Optional("pause_s"): vol.All(vol.Coerce(float), vol.Range(min=0, max=120)),
+    vol.Optional("volume"): vol.Any(None, vol.All(vol.Coerce(int), vol.Range(min=0, max=100))),
+    vol.Optional("shabbat_yomtov"): vol.In(["announce", "skip"]),
+    vol.Optional("nights"): {vol.Match(r"^\d{4}-\d{2}-\d{2}$"): vol.In(["announce", "skip"])},
+})
+
+
+def _omer_cfg(m: ShabbotManager, raw: dict | None, lenient_time: bool = False) -> dict:
+    """The saved Omer config with a (validated) draft from the panel laid over it.
+
+    `lenient_time` keeps a time that doesn't parse (each night then reports the error) so a half-typed time
+    doesn't blank the panel's preview.
+    """
+    raw = dict(raw or {})
+    time_text = raw.pop("time", None) if lenient_time else None
+    cfg = {**copy.deepcopy(m.config["omer"]), **OMER_SCHEMA(raw)}
+    if time_text is not None:
+        cfg["time"] = str(time_text)
+    return cfg
+
 
 def _mgr(hass: HomeAssistant) -> ShabbotManager:
     return hass.data[DOMAIN]
@@ -185,6 +223,7 @@ async def ws_config(hass, connection, msg) -> None:
             "detectors": DETECTORS,
             "default_device": DEFAULT_DEVICE,
             "default_settings": DEFAULT_SETTINGS,
+            "default_omer": DEFAULT_OMER,
             "location": m.status()["location"],
             "is_admin": connection.user.is_admin,
         },
@@ -289,7 +328,7 @@ async def ws_export(hass, connection, msg) -> None:
     settings = {k: v for k, v in c["settings"].items() if k not in ("latitude", "longitude", "notify_service")}
     connection.send_result(msg["id"], {"shabbot_export": 1, "version": VERSION, "settings": settings,
                                        "routines": c["routines"], "rules": c["rules"], "modes": c["modes"],
-                                       "devices": c["devices"]})
+                                       "devices": c["devices"], "omer": c["omer"]})
 
 
 def _check_routine(m: ShabbotManager, part: str, actions: list[dict]) -> list[planner.ActionCheck]:
@@ -655,6 +694,7 @@ async def ws_import(hass, connection, msg) -> None:
     modes = [MODE_SCHEMA(x) for x in data.get("modes") or []]
     devices = {e: DEVICE_SCHEMA(d) for e, d in (data.get("devices") or {}).items()}
     settings = SETTINGS_SCHEMA({k: v for k, v in (data.get("settings") or {}).items() if k in SETTINGS_SCHEMA.schema})
+    omer_cfg = OMER_SCHEMA(data["omer"]) if data.get("omer") else None
     c = m.config
     if msg["replace"]:
         c["routines"], c["rules"], c["modes"], c["devices"] = routines, rules, modes, devices
@@ -666,9 +706,75 @@ async def ws_import(hass, connection, msg) -> None:
         c["modes"] += [x for x in modes if x.get("id") not in known]
         c["devices"].update(devices)
     c["settings"].update({k: v for k, v in settings.items() if k not in ("dry_run",)})
+    if omer_cfg:
+        c["omer"] = {**(DEFAULT_OMER if msg["replace"] else c["omer"]), **omer_cfg}
     m.log("settings", f"Imported {len(routines)} routines, {len(rules)} rules, {len(modes)} modes")
     m.config_changed()
     connection.send_result(msg["id"])
+
+
+# ---------------------------------------------------------------- Sefirat Haomer
+
+
+@websocket_api.websocket_command({vol.Required("type"): "shabbot/omer/season", vol.Optional("omer"): dict})
+@websocket_api.async_response
+@_ready
+async def ws_omer_season(hass, connection, msg) -> None:
+    """This year's 49 nights with time, text and whether each is announced (draft settings if given)."""
+    m = _mgr(hass)
+    cfg = _omer_cfg(m, msg.get("omer"), lenient_time=True)
+    tonight = night_info(m.now().date(), cfg, m)
+    connection.send_result(msg["id"], {"nights": m.omer.season(cfg), "tonight": tonight, "next": m.omer.next})
+
+
+@websocket_api.websocket_command({vol.Required("type"): "shabbot/omer/preview", vol.Required("expr"): str})
+@websocket_api.async_response
+@_ready
+async def ws_omer_preview(hass, connection, msg) -> None:
+    """Evaluate a time expression for the next Omer evening (the ExprInput preview)."""
+    m = _mgr(hass)
+    nights = m.omer.season()
+    today = m.now().date().isoformat()
+    target = next((n for n in nights if n["evening"] >= today), nights[0])
+    evening = date.fromisoformat(target["evening"])
+    title = f"Omer night {target['night']}"
+    try:
+        when = announce_time(evening, msg["expr"], m)
+        connection.send_result(msg["id"], {"time": when.isoformat(), "key": target["evening"], "title": title})
+    except timeexpr.ExprError as err:
+        connection.send_result(msg["id"], {"error": str(err), "key": target["evening"], "title": title})
+
+
+@websocket_api.websocket_command({vol.Required("type"): "shabbot/omer/save", vol.Required("omer"): dict})
+@websocket_api.require_admin
+@websocket_api.async_response
+@_ready
+async def ws_omer_save(hass, connection, msg) -> None:
+    m = _mgr(hass)
+    cfg = _omer_cfg(m, msg["omer"])
+    cfg["voices"] = cfg["voices"] or [dict(DEFAULT_OMER["voices"][0])]
+    if cfg["enabled"] and (not cfg["players"] or not any(v["engine_id"] for v in cfg["voices"])):
+        raise vol.Invalid("Choose at least one speaker and a text-to-speech engine before turning the reminder on")
+    # Per-night choices for past seasons only take up space.
+    cutoff = (m.now().date() - timedelta(days=60)).isoformat()
+    cfg["nights"] = {d: v for d, v in cfg["nights"].items() if d >= cutoff}
+    m.config["omer"] = cfg
+    m.config_changed(reconcile=False)
+    connection.send_result(msg["id"], cfg)
+
+
+@websocket_api.websocket_command({vol.Required("type"): "shabbot/omer/test", vol.Optional("omer"): dict,
+                                  vol.Optional("night"): vol.All(vol.Coerce(int), vol.Range(min=1, max=49))})
+@websocket_api.require_admin
+@websocket_api.async_response
+@_ready
+async def ws_omer_test(hass, connection, msg) -> None:
+    """Speak a night's announcement now (even in dry run), with the draft settings if given."""
+    m = _mgr(hass)
+    cfg = _omer_cfg(m, msg.get("omer"))
+    n = msg.get("night") or omer.omer_night(m.now().date()) or 1
+    hass.async_create_task(m.omer.async_announce(n, cfg, force=True))
+    connection.send_result(msg["id"], {"night": n, "text": omer.announcement(n, cfg)})
 
 
 @websocket_api.websocket_command({vol.Required("type"): "shabbot/learn"})
@@ -705,6 +811,6 @@ def async_setup_websocket(hass: HomeAssistant) -> None:
         ws_routine_save, ws_routine_delete, ws_routines_reorder, ws_simulate_steps, ws_simulate_start,
         ws_simulate_apply, ws_simulate_stop, ws_rules_save, ws_modes_save, ws_device_save, ws_device_delete,
         ws_zwave_preset, ws_settings_save, ws_assignment_set, ws_override_start, ws_override_end, ws_resume,
-        ws_import, ws_learn,
+        ws_import, ws_learn, ws_omer_season, ws_omer_preview, ws_omer_save, ws_omer_test,
     ):
         websocket_api.async_register_command(hass, handler)

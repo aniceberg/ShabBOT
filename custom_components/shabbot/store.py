@@ -14,6 +14,7 @@ from homeassistant.util import dt as dt_util
 from .const import (
     ACTIVITY_MAX,
     DEFAULT_DEVICE,
+    DEFAULT_OMER,
     DEFAULT_SETTINGS,
     STARTER_ROUTINES,
     STARTER_RULES,
@@ -43,6 +44,7 @@ def starter_config(settings: dict[str, Any] | None = None) -> dict[str, Any]:
         "modes": [],
         "assignments": {},
         "devices": {},
+        "omer": copy.deepcopy(DEFAULT_OMER),
     }
 
 
@@ -70,6 +72,7 @@ class ShabbotStore:
             self.config["settings"] = {**DEFAULT_SETTINGS, **self.config["settings"]}
             for key, empty in (("routines", {}), ("rules", []), ("modes", []), ("assignments", {}), ("devices", {})):
                 self.config.setdefault(key, empty)
+            self.config["omer"] = {**copy.deepcopy(DEFAULT_OMER), **(self.config.get("omer") or {})}
         activity = await self._activity_store.async_load()
         self.activity = (activity or {}).get("entries", [])
 
