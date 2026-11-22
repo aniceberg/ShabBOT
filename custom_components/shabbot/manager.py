@@ -24,6 +24,7 @@ from homeassistant.util import dt as dt_util
 from . import links
 from .const import PLAN_HORIZON_DAYS, POLL_SECONDS, SIGNAL_ACTIVITY, SIGNAL_UPDATE, SIMULATION_IDLE_MINUTES
 from .core import astro, gestures, jcal, planner
+from .omer import OmerAnnouncer
 from .store import ShabbotStore, device_config
 
 _LOGGER = logging.getLogger(__name__)
@@ -99,6 +100,7 @@ class ShabbotManager:
         self.simulation: dict[str, str] | None = None  # test mode session: live engine paused while set
         self._simulation_timer: CALLBACK_TYPE | None = None
         self._simulation_before: dict[str, str] = {}  # entity -> on/off before test mode first touched it
+        self.omer = OmerAnnouncer(self)
 
     # ------------------------------------------------------------ config accessors
 
@@ -153,6 +155,7 @@ class ShabbotManager:
             if unsub:
                 unsub()
         self._unsubs.clear()
+        self.omer.cancel()
         await self.store.async_flush()
 
     @callback
@@ -185,6 +188,7 @@ class ShabbotManager:
         self._subscribe_events()
         self._schedule_next_boundary()
         self._schedule_block_change()
+        self.omer.schedule()
         async_dispatcher_send(self.hass, SIGNAL_UPDATE)
 
     def managed_entities(self) -> list[str]:
@@ -644,6 +648,7 @@ class ShabbotManager:
             "protection": bool(self.settings.get("protection")),
             "simulation": self.simulation,
             "next_boundary": self._next_boundary.isoformat() if self._next_boundary else None,
+            "omer_next": self.omer.next,
             "location": {"latitude": self.location.latitude, "longitude": self.location.longitude,
                          "time_zone": self.hass.config.time_zone, "elevation": self.location.elevation_m},
             "entities": rows,

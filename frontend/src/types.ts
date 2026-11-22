@@ -116,6 +116,42 @@ export interface Config {
   modes: Mode[];
   assignments: Record<string, { routine_id?: string; skip?: boolean; disabled_actions?: string[] }>;
   devices: Record<string, DeviceConfig>;
+  omer: OmerConfig;
+}
+
+export type Nusach = "edot_hamizrach" | "ashkenaz" | "sefard";
+export interface OmerVoice {
+  engine_id: string;
+  language: string | null;
+  voice: string | null;
+}
+export interface OmerConfig {
+  enabled: boolean;
+  nusach: Nusach;
+  baomer: boolean;
+  style: "full" | "count" | "simple";
+  divine_name: "hashem" | "full";
+  sefirah: boolean | null;
+  simple_language: "en" | "he";
+  last_night: boolean;
+  time: string;
+  players: string[];
+  voices: OmerVoice[];
+  pause_s: number;
+  volume: number | null;
+  shabbat_yomtov: "announce" | "skip";
+  nights: Record<string, "announce" | "skip">;
+}
+export interface OmerNight {
+  evening: string;
+  night: number;
+  time: string | null;
+  error: string | null;
+  shabbat: boolean;
+  holiday: string | null;
+  announce: boolean;
+  choice: "announce" | "skip" | null;
+  text: string;
 }
 
 export interface Meta {
@@ -125,6 +161,7 @@ export interface Meta {
   day_types: string[];
   detectors: string[];
   default_device: Required<DeviceConfig>;
+  default_omer: OmerConfig;
   location: { latitude: number; longitude: number; time_zone: string; elevation: number };
   is_admin: boolean;
 }
@@ -227,6 +264,8 @@ export interface Status {
   /** Set while test mode runs (the live engine is paused). */
   simulation: { started: string; expires: string } | null;
   next_boundary: string | null;
+  /** The next scheduled Omer announcement, if the reminder is on. */
+  omer_next: OmerNight | null;
   location: Meta["location"];
   entities: EntityStatus[];
 }

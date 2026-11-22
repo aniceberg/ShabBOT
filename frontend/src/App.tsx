@@ -8,6 +8,7 @@ import { CalendarPage } from "./pages/CalendarPage";
 import { RoutinesPage } from "./pages/RoutinesPage";
 import { RulesPage } from "./pages/RulesPage";
 import { ModesPage } from "./pages/ModesPage";
+import { OmerPage } from "./pages/OmerPage";
 import { DevicesPage } from "./pages/DevicesPage";
 import { ActivityPage } from "./pages/ActivityPage";
 import { SettingsPage } from "./pages/SettingsPage";
@@ -18,6 +19,7 @@ const TABS = [
   { id: "routines", label: "Routines", el: RoutinesPage },
   { id: "rules", label: "Default rules", el: RulesPage },
   { id: "modes", label: "Summer & vacation", el: ModesPage },
+  { id: "omer", label: "Omer", el: OmerPage },
   { id: "devices", label: "Devices", el: DevicesPage },
   { id: "activity", label: "Activity", el: ActivityPage },
   { id: "test", label: "Test", el: SimulatePage },

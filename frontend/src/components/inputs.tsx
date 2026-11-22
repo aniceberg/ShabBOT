@@ -94,8 +94,12 @@ export function EntityMultiPicker({ value, onChange, domains = CONTROLLABLE, exc
 const QUICK = ["candle_lighting", "sunset", "tzeit", "midnight", "sunrise", "chatzot", "havdalah"];
 
 /** Time expression input with live preview against the next matching Shabbat/Yom Tov. */
-export function ExprInput({ value, onChange, part, slotKey, resolved }: {
-  value: string; onChange: (v: string) => void; part: Part; slotKey?: string;
+export function ExprInput({ value, onChange, part, slotKey, resolved, previewType = "shabbot/preview", quick = QUICK }: {
+  value: string; onChange: (v: string) => void; part?: Part; slotKey?: string;
+  /** Websocket command that evaluates the expression (default: against the next Shabbat/Yom Tov). */
+  previewType?: string;
+  /** Anchors offered under "Insert time". */
+  quick?: string[];
   /** Time the whole row resolves to (e.g. an end read as the next morning); overrides the single-field preview. */
   resolved?: string | null;
 }) {
@@ -108,15 +112,14 @@ export function ExprInput({ value, onChange, part, slotKey, resolved }: {
     let cancelled = false;
     const t = setTimeout(() => {
       callWS<{ time?: string; error?: string; title?: string }>({
-        type: "shabbot/preview", expr: value, ...(slotKey ? { key: slotKey } : { part }),
+        type: previewType, expr: value, ...(slotKey ? { key: slotKey } : part ? { part } : {}),
       }).then((r) => !cancelled && setPreview(r), (e) => !cancelled && setPreview({ error: String(e?.message ?? e) }));
     }, 250);
     return () => {
       cancelled = true;
       clearTimeout(t);
     };
-  }, [value, part, slotKey]);
-  const quick = QUICK;
+  }, [value, part, slotKey, previewType]);
   const shown = resolved ?? preview.time;
   return (
     <div>
