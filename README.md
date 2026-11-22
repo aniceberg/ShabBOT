@@ -17,6 +17,7 @@ Set your home's Shabbat and Yom Tov schedule once, and ShabBOT runs it. It works
 - **Device protection:** if a device changes unexpectedly during Shabbat or Yom Tov, ShabBOT puts it back.
 - **Intentional overrides:** a triple-tap or a learned button press pauses protection on a device for a set time.
 - **Test mode:** rehearse the schedule on your real devices before you rely on it.
+- **Sefirat Haomer:** your speakers announce each night's count, in your nusach, at the time you choose.
 - **Built-in zmanim:** ShabBOT calculates its own times and doesn't need Home Assistant's Jewish Calendar integration.
 
 ## What you need
@@ -110,6 +111,20 @@ Zooz switches send these events only when scene control is enabled in the device
 If a device keeps changing back, ShabBOT eventually stops correcting it, by default after 5 corrections in 10 minutes. The **Devices** tab shows it as **Paused**. Open the device and choose **Resume protection**.
 
 To be told when this happens, choose a notification service on the **Settings** tab.
+
+### Count the Omer
+
+On the **Omer** tab, tick **Announce the Omer every night**, then choose:
+
+- **Read-out:** the full count with the bracha, the count only, or a simple reminder like "Tonight is the 8th night of the Omer" in English or Hebrew. The simple reminder can also say what last night's count was.
+- **Nusach:** Edot Hamizrach, Sefard / Chabad, or Ashkenaz, with "בָּעֹמֶר" as an option for Ashkenaz.
+- **Time:** a zman with an offset, like `tzeit+5m` or `sunset+44m`, or a clock time like `9pm`.
+- **Speakers:** one or more media players, speakers or speaker groups, with an optional volume.
+- **Text-to-speech engine:** the engine, language and voice. You can add a second voice to repeat the announcement.
+
+ShabBOT works out each night from the Hebrew calendar. The table of all 49 nights shows what will be said and when, and lets you skip any single night. To skip every Shabbat and Yom Tov night, change **On Shabbat and Yom Tov nights** to **Don't announce**. While dry run is on, the announcement is only written to the **Activity** tab.
+
+The full count and the Hebrew reminder need an engine that speaks Hebrew. If you don't have one, the Omer tab suggests some: Home Assistant Cloud and Microsoft Azure Speech have natural Hebrew voices, and Google Translate is free and quick to add. The English reminder works with any engine.
 
 ### More than one home
 
